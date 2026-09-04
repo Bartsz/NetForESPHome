@@ -1,0 +1,113 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup> 
+    <ProtoDir>$(MSBuildProjectDirectory)\Protos</ProtoDir>
+    <EspHomeProtoUrl>https://raw.githubusercontent.com/esphome/esphome/refs/heads/dev/esphome/components/api</EspHomeProtoUrl>
+  </PropertyGroup>
+
+  <!-- Add xml documentation to be included in build and then be used by IntelliSense -->
+  <ItemGroup>
+    <None Update="NetForESPHome.DomainModel.xml" Pack="true" PackagePath="lib\$(TargetFramework)\" />
+  </ItemGroup>
+  <ItemGroup>
+    <Protobuf Remove="D:\GIT\HomeAssistantRewrite\NidoWeaver\NetForESPHome\NetForESPHome.DomainModel\Protos\api.proto" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Protobuf Include="$(ProtoDir)\api.proto" ProtoRoot="$(ProtoDir)" GrpcServices="Client" />
+    <Protobuf Remove="D:\GIT\HomeAssistantRewrite\NidoWeaver\NetForESPHome\NetForESPHome.DomainModel\Protos\api_options.proto" />
+
+    <Protobuf Include="$(ProtoDir)\api_options.proto" ProtoRoot="$(ProtoDir)" GrpcServices="None" />
+  </ItemGroup>
+  <!-- Cross-platform task executed by MSBuild -->
+  <UsingTask TaskName="PatchEspHomeProtoVoid" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
+
+    <ParameterGroup>
+      <ApiProto ParameterType="System.String" Required="true" />
+      <ApiOptionsProto ParameterType="System.String" Required="true" />
+    </ParameterGroup>
+
+    <Task>
+      <Using Namespace="System" />
+      <Using Namespace="System.IO" />
+      <Using Namespace="System.Text.RegularExpressions" />
+      <Using Namespace="Microsoft.Build.Framework" />
+
+      <Code Type="Fragment" Language="cs">
+        <![CDATA[
+
+        // api.proto:
+        // returns (void)
+        // ->
+        // returns (VoidMessage)
+
+        if (File.Exists(ApiProto))
+        {
+            var text = File.ReadAllText(ApiProto);
+            var patched = Regex.Replace(text, @"\breturns\s*\(\s*void\s*\)", "returns (VoidMessage)");
+
+            if (!String.Equals(text, patched, StringComparison.Ordinal))
+            {
+                File.WriteAllText(ApiProto, patched);
+                Log.LogMessage(MessageImportance.High, $"Patched protobuf file: {ApiProto}");
+            }
+        }
+
+        // api_options.proto:
+        // message void {}
+        // ->
+        // message VoidMessage {}
+
+        if (File.Exists(ApiOptionsProto))
+        {
+            var text = File.ReadAllText(ApiOptionsProto);
+            var patched = Regex.Replace(text, @"(?m)^(\s*)message\s+void\b", "$1message VoidMessage");
+
+            if (!String.Equals(text, patched, StringComparison.Ordinal))
+            {
+                File.WriteAllText(ApiOptionsProto, patched);
+                Log.LogMessage(MessageImportance.High, $"Patched protobuf file: {ApiOptionsProto}");
+            }
+        }
+
+        ]]>
+      </Code>
+    </Task>
+  </UsingTask>
+
+  <Target Name="FetchProto" BeforeTargets="Protobuf_BeforeCompile">
+    <Message Condition="!Exists('$(ProtoDir)/api.proto')" Text="Protos/api.proto not found. Downloading from GitHub..." Importance="high" />
+    <DownloadFile Condition="!Exists('$(ProtoDir)/api.proto')" SourceUrl="$(EspHomeProtoUrl)/api.proto" DestinationFolder="$(ProtoDir)" DestinationFileName="api.proto" Retries="3">
+      <Output TaskParameter="DownloadedFile" ItemName="_DownloadedEspHomeProto" />
+    </DownloadFile>
+
+    <Message Condition="!Exists('$(ProtoDir)/api_options.proto')" Text="Protos/api_options.proto not found. Downloading from GitHub..." Importance="high" />
+    <DownloadFile Condition="!Exists('$(ProtoDir)/api_options.proto')" SourceUrl="$(EspHomeProtoUrl)/api_options.proto" DestinationFolder="$(ProtoDir)" DestinationFileName="api_options.proto" Retries="3">
+      <Output TaskParameter="DownloadedFile" ItemName="_DownloadedEspHomeProto" />
+    </DownloadFile>
+
+    <!-- Run if at least on file was downloaded -->
+    <!--Condition="'@(_DownloadedEspHomeProto)' != ''"-->
+    <PatchEspHomeProtoVoid ApiProto="$(ProtoDir)/api.proto" ApiOptionsProto="$(ProtoDir)/api_options.proto" />
+
+  </Target>
+
+
+  <ItemGroup>
+    <!-- Required for Protobuf serialization -->
+    <PackageReference Include="Google.Protobuf" />
+    <!-- Required for gRPC client/server generation (if GrpcServices is not "None") -->
+    <PackageReference Include="Grpc.Net.Client" />
+    <!-- This package provides the build-time C# code generation from .proto files. -->
+    <PackageReference Include="Grpc.Tools" IncludeAssets="runtime; build; native; contentfiles; analyzers; buildtransitive" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Update="Meziantou.Analyzer" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Protos\" />
+  </ItemGroup>
+
+</Project>

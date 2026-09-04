@@ -1,0 +1,1166 @@
+﻿<doc>
+  <!-- Generated from ESPHome Native API definitions and verified command semantics. -->
+  <assembly>
+    <name>ESPHome.DomainModel</name>
+  </assembly>
+  <members>
+    <member name="M:DeviceInfoRequest.#ctor">
+      <summary>
+        Requests the current ESPHome device information.<para>The client already exposes RequestDeviceInfoRefresh for the normal request/output-channel flow.</para>
+      </summary>
+    </member>
+    <member name="M:DeviceCapabilitiesRequest.#ctor">
+      <summary>
+        Requests protocol capabilities advertised by newer ESPHome devices.<para>This request is available for API 1.15 and newer. Older peers do not provide the same capability response directly.</para>
+      </summary>
+    </member>
+    <member name="M:ListEntitiesRequest.#ctor">
+      <summary>
+        Requests all entity and user-service descriptions from the ESPHome device.<para>The response is a stream of ListEntities*Response messages terminated by ListEntitiesDoneResponse.</para>
+      </summary>
+    </member>
+    <member name="M:SubscribeStatesRequest.#ctor">
+      <summary>
+        Starts the ESPHome entity-state subscription for the current connection.<para>After subscription, supported entity state messages are sent asynchronously by the device.</para>
+      </summary>
+    </member>
+    <member name="M:SubscribeLogsRequest.#ctor">
+      <summary>
+        Starts or changes the ESPHome log subscription.<para>Set Level to the desired LogLevel. Level NONE stops device log delivery.</para>
+        <para>DumpConfig requests a configuration dump in addition to the selected log stream.</para>
+      </summary>
+    </member>
+    <member name="P:SubscribeLogsRequest.Level">
+      <summary>Minimum ESPHome LogLevel to receive. Use NONE to stop log delivery.</summary>
+    </member>
+    <member name="P:SubscribeLogsRequest.DumpConfig">
+      <summary>Set to true to request the device configuration dump.</summary>
+    </member>
+    <member name="M:NoiseEncryptionSetKeyRequest.#ctor">
+      <summary>
+        Changes or clears the ESPHome Native API Noise encryption key.<para>Key contains the raw key bytes. For initial provisioning, perform the operation over the Noise provisioning session so the real key is not exposed as plaintext.</para>
+        <para>An empty Key clears the stored encryption key.</para>
+      </summary>
+    </member>
+    <member name="P:NoiseEncryptionSetKeyRequest.Key">
+      <summary>Raw Noise encryption key bytes. An empty ByteString clears the stored key.</summary>
+    </member>
+    <member name="M:SubscribeHomeassistantServicesRequest.#ctor">
+      <summary>
+        Subscribes to Home Assistant action requests initiated by the ESPHome device.<para>Incoming requests are delivered as HomeassistantActionRequest messages.</para>
+      </summary>
+    </member>
+    <member name="M:HomeassistantActionResponse.#ctor">
+      <summary>
+        Returns the result of a Home Assistant action requested by ESPHome.<para>CallId must match HomeassistantActionRequest.CallId.</para>
+        <para>Send a response when the incoming request asks for one. ResponseData is the optional serialized response payload supported by the corresponding protocol feature.</para>
+      </summary>
+    </member>
+    <member name="P:HomeassistantActionResponse.CallId">
+      <summary>Correlation identifier copied from the incoming HomeassistantActionRequest.CallId.</summary>
+    </member>
+    <member name="P:HomeassistantActionResponse.Success">
+      <summary>True when the Home Assistant action completed successfully.</summary>
+    </member>
+    <member name="P:HomeassistantActionResponse.ErrorMessage">
+      <summary>Failure detail when Success is false; leave empty on success.</summary>
+    </member>
+    <member name="P:HomeassistantActionResponse.ResponseData">
+      <summary>Optional serialized response payload for protocol versions/features that support action response data.</summary>
+    </member>
+    <member name="M:SubscribeHomeAssistantStatesRequest.#ctor">
+      <summary>
+        Subscribes to Home Assistant state requests declared by the ESPHome device.<para>The device responds with SubscribeHomeAssistantStateResponse messages describing entity and attribute subscriptions.</para>
+      </summary>
+    </member>
+    <member name="M:HomeAssistantStateResponse.#ctor">
+      <summary>
+        Supplies a Home Assistant entity or attribute state requested by ESPHome.<para>EntityId and Attribute should match the values from SubscribeHomeAssistantStateResponse.</para>
+        <para>For an entity-state request without an attribute, leave Attribute empty.</para>
+      </summary>
+    </member>
+    <member name="P:HomeAssistantStateResponse.EntityId">
+      <summary>Home Assistant entity ID requested by the ESPHome device.</summary>
+    </member>
+    <member name="P:HomeAssistantStateResponse.State">
+      <summary>State string to provide to ESPHome.</summary>
+    </member>
+    <member name="P:HomeAssistantStateResponse.Attribute">
+      <summary>Requested Home Assistant attribute name, or empty for the entity state itself.</summary>
+    </member>
+    <member name="M:ExecuteServiceArgument.#ctor">
+      <summary>
+        Encodes one argument for an ESPHome user-defined action.<para>Populate exactly one scalar field or one array field according to the matching ListEntitiesServicesArgument.Type.</para>
+        <para>For integer scalar arguments, use Int for API 1.3 and newer and LegacyInt for older peers.</para>
+      </summary>
+    </member>
+    <member name="P:ExecuteServiceArgument.Bool">
+      <summary>Boolean scalar argument. Populate only when the matching service argument type is BOOL.</summary>
+    </member>
+    <member name="P:ExecuteServiceArgument.LegacyInt">
+      <summary>Legacy integer scalar used for peers older than API 1.3.</summary>
+    </member>
+    <member name="P:ExecuteServiceArgument.Float">
+      <summary>Floating-point scalar argument. Populate only for a FLOAT service argument.</summary>
+    </member>
+    <member name="P:ExecuteServiceArgument.String">
+      <summary>String scalar argument. Populate only for a STRING service argument.</summary>
+    </member>
+    <member name="P:ExecuteServiceArgument.Int">
+      <summary>Signed integer scalar used by API 1.3 and newer.</summary>
+    </member>
+    <member name="P:ExecuteServiceArgument.BoolArray">
+      <summary>Boolean-array argument values. Use only for BOOL_ARRAY.</summary>
+    </member>
+    <member name="P:ExecuteServiceArgument.IntArray">
+      <summary>Signed integer-array argument values. Use only for INT_ARRAY.</summary>
+    </member>
+    <member name="P:ExecuteServiceArgument.FloatArray">
+      <summary>Floating-point-array argument values. Use only for FLOAT_ARRAY.</summary>
+    </member>
+    <member name="P:ExecuteServiceArgument.StringArray">
+      <summary>String-array argument values. Use only for STRING_ARRAY.</summary>
+    </member>
+    <member name="M:ExecuteServiceRequest.#ctor">
+      <summary>
+        Invokes an ESPHome user-defined action.<para>Key comes from ListEntitiesServicesResponse.Key.</para>
+        <para>Args must be in the same order as ListEntitiesServicesResponse.Args.</para>
+        <para>When ReturnResponse is true, use a non-zero CallId that is unique among pending calls and correlate ExecuteServiceResponse by that CallId.</para>
+      </summary>
+    </member>
+    <member name="P:ExecuteServiceRequest.Key">
+      <summary>User-service key from ListEntitiesServicesResponse.Key.</summary>
+    </member>
+    <member name="P:ExecuteServiceRequest.Args">
+      <summary>Arguments in the same order as ListEntitiesServicesResponse.Args. Each element should populate the field matching that argument's ServiceArgType.</summary>
+    </member>
+    <member name="P:ExecuteServiceRequest.CallId">
+      <summary>Correlation identifier for ExecuteServiceResponse. Use a unique non-zero value when ReturnResponse is true.</summary>
+    </member>
+    <member name="P:ExecuteServiceRequest.ReturnResponse">
+      <summary>Set to true when the caller expects ExecuteServiceResponse and will correlate it by CallId.</summary>
+    </member>
+    <member name="M:CameraImageRequest.#ctor">
+      <summary>
+        Requests a single camera frame or enables camera streaming.<para>Set Single for one image and Stream for continuous images.</para>
+        <para>CameraImageResponse is chunked; a complete frame ends when Done is true.</para>
+      </summary>
+    </member>
+    <member name="P:CameraImageRequest.Single">
+      <summary>Set to true to request one camera image.</summary>
+    </member>
+    <member name="P:CameraImageRequest.Stream">
+      <summary>Set to true to request a continuous camera image stream.</summary>
+    </member>
+    <member name="T:CommandProtoMessage">
+      <inheritdoc cref="M:CommandProtoMessage.#ctor"/>
+    </member>
+    <member name="M:CommandProtoMessage.#ctor">
+      <summary>
+        Base class for ESPHome Native API entity command messages.<para>Use a concrete *CommandRequest type for an entity operation; this base type only represents the common command-message category.</para>
+      </summary>
+    </member>
+    <member name="T:CoverCommandRequest">
+      <inheritdoc cref="M:CoverCommandRequest.#ctor"/>
+    </member>
+    <member name="M:CoverCommandRequest.#ctor">
+      <summary>
+        Controls an ESPHome cover entity.<para>Required: Position -&gt; set HasPosition to true. Required: Tilt -&gt; set HasTilt to true. Stop has no presence flag; set Stop to true to stop movement.</para>
+        <para>Position and Tilt are normalized values in the range [0.0, 1.0], where 0.0 is fully closed and 1.0 is fully open. Use Position, Tilt, and Stop only when the matching ListEntitiesCoverResponse advertises support.</para>
+        <para>For API 1.1 and newer use Position, Tilt, and Stop. For older peers use HasLegacyCommand and LegacyCommand for OPEN, CLOSE, or STOP.</para>
+      </summary>
+    </member>
+    <member name="P:CoverCommandRequest.Key">
+      <summary>Entity protocol key. Copy this value from the matching ListEntities response. Do not derive it from Name or ObjectId.</summary>
+    </member>
+    <member name="P:CoverCommandRequest.HasLegacyCommand">
+      <summary>Deprecated compatibility presence flag for LegacyCommand. Use only with peers older than API 1.1.</summary>
+    </member>
+    <member name="P:CoverCommandRequest.LegacyCommand">
+      <summary>Deprecated legacy OPEN, CLOSE, or STOP command for peers older than API 1.1. HasLegacyCommand must be true.</summary>
+    </member>
+    <member name="P:CoverCommandRequest.HasPosition">
+      <summary>Set to true to apply Position. When false, ESPHome ignores the corresponding Position value even when that value is non-default.</summary>
+    </member>
+    <member name="P:CoverCommandRequest.Position">
+      <summary>Target cover position normalized to 0.0..1.0, where 0.0 is fully closed and 1.0 is fully open. HasPosition must be true.</summary>
+    </member>
+    <member name="P:CoverCommandRequest.HasTilt">
+      <summary>Set to true to apply Tilt. When false, ESPHome ignores the corresponding Tilt value even when that value is non-default.</summary>
+    </member>
+    <member name="P:CoverCommandRequest.Tilt">
+      <summary>Target cover tilt normalized to 0.0..1.0, where 0.0 is fully closed and 1.0 is fully open. HasTilt must be true.</summary>
+    </member>
+    <member name="P:CoverCommandRequest.Stop">
+      <summary>Set to true to stop cover movement. This field does not have a separate HasStop flag.</summary>
+    </member>
+    <member name="P:CoverCommandRequest.DeviceId">
+      <summary>Device or sub-device identifier from the matching entity description. Use 0 for the primary device when no sub-device identifier is present.</summary>
+    </member>
+    <member name="T:FanCommandRequest">
+      <inheritdoc cref="M:FanCommandRequest.#ctor"/>
+    </member>
+    <member name="M:FanCommandRequest.#ctor">
+      <summary>
+        Controls an ESPHome fan entity.<para>Required: State -&gt; set HasState to true. Speed -&gt; HasSpeed. SpeedLevel -&gt; HasSpeedLevel. Oscillating -&gt; HasOscillating. Direction -&gt; HasDirection. PresetMode -&gt; HasPresetMode.</para>
+        <para>HasSpeed/Speed are deprecated since API 1.6; prefer HasSpeedLevel/SpeedLevel. When speed control is supported, SpeedLevel should be in the range [1, ListEntitiesFanResponse.SupportedSpeedCount]. PresetMode should match one of SupportedPresetModes. Use oscillation and direction only when the entity advertises those features.</para>
+      </summary>
+    </member>
+    <member name="P:FanCommandRequest.Key">
+      <summary>Entity protocol key. Copy this value from the matching ListEntities response. Do not derive it from Name or ObjectId.</summary>
+    </member>
+    <member name="P:FanCommandRequest.HasState">
+      <summary>Set to true to apply State. When false, ESPHome ignores the corresponding State value even when that value is non-default.</summary>
+    </member>
+    <member name="P:FanCommandRequest.State">
+      <summary>Desired on/off state. HasState must be true.</summary>
+    </member>
+    <member name="P:FanCommandRequest.HasSpeed">
+      <summary>Deprecated since API 1.6. Set to true only when using the legacy Speed field with an older peer.</summary>
+    </member>
+    <member name="P:FanCommandRequest.Speed">
+      <summary>Deprecated FanSpeed value for peers older than API 1.6. HasSpeed must be true; prefer SpeedLevel on API 1.6 and newer.</summary>
+    </member>
+    <member name="P:FanCommandRequest.HasOscillating">
+      <summary>Set to true to apply Oscillating. When false, ESPHome ignores the corresponding Oscillating value even when that value is non-default.</summary>
+    </member>
+    <member name="P:FanCommandRequest.Oscillating">
+      <summary>Desired oscillation state. HasOscillating must be true.</summary>
+    </member>
+    <member name="P:FanCommandRequest.HasDirection">
+      <summary>Set to true to apply Direction. When false, ESPHome ignores the corresponding Direction value even when that value is non-default.</summary>
+    </member>
+    <member name="P:FanCommandRequest.Direction">
+      <summary>Desired FanDirection. HasDirection must be true.</summary>
+    </member>
+    <member name="P:FanCommandRequest.HasSpeedLevel">
+      <summary>Set to true to apply SpeedLevel. When false, ESPHome ignores the corresponding SpeedLevel value even when that value is non-default.</summary>
+    </member>
+    <member name="P:FanCommandRequest.SpeedLevel">
+      <summary>Discrete fan speed level in the range [1, ListEntitiesFanResponse.SupportedSpeedCount]. HasSpeedLevel must be true and the entity must support speed control.</summary>
+    </member>
+    <member name="P:FanCommandRequest.HasPresetMode">
+      <summary>Set to true to apply PresetMode. When false, ESPHome ignores the corresponding PresetMode value even when that value is non-default.</summary>
+    </member>
+    <member name="P:FanCommandRequest.PresetMode">
+      <summary>Preset name from ListEntitiesFanResponse.SupportedPresetModes. HasPresetMode must be true.</summary>
+    </member>
+    <member name="P:FanCommandRequest.DeviceId">
+      <summary>Device or sub-device identifier from the matching entity description. Use 0 for the primary device when no sub-device identifier is present.</summary>
+    </member>
+    <member name="T:LightCommandRequest">
+      <inheritdoc cref="M:LightCommandRequest.#ctor"/>
+    </member>
+    <member name="M:LightCommandRequest.#ctor">
+      <summary>
+        Controls an ESPHome light entity.<para>Required: State -&gt; HasState. Brightness -&gt; HasBrightness. ColorMode -&gt; HasColorMode. ColorBrightness -&gt; HasColorBrightness. Red/Green/Blue -&gt; HasRgb. White -&gt; HasWhite. ColorTemperature -&gt; HasColorTemperature. ColdWhite -&gt; HasColdWhite. WarmWhite -&gt; HasWarmWhite. TransitionLength -&gt; HasTransitionLength. FlashLength -&gt; HasFlashLength. Effect -&gt; HasEffect.</para>
+        <para>Brightness, ColorBrightness, Red, Green, Blue, White, ColdWhite, and WarmWhite use normalized values in the range [0.0, 1.0].</para>
+        <para>ColorTemperature is expressed in mireds and should be within ListEntitiesLightResponse.MinMireds and MaxMireds.</para>
+        <para>TransitionLength and FlashLength are durations in milliseconds.</para>
+        <para>Effect should be one of ListEntitiesLightResponse.Effects. ColorMode should be compatible with ListEntitiesLightResponse.SupportedColorModes.</para>
+      </summary>
+    </member>
+    <member name="P:LightCommandRequest.Key">
+      <summary>Entity protocol key. Copy this value from the matching ListEntities response. Do not derive it from Name or ObjectId.</summary>
+    </member>
+    <member name="P:LightCommandRequest.HasState">
+      <summary>Set to true to apply State. When false, ESPHome ignores the corresponding State value even when that value is non-default.</summary>
+    </member>
+    <member name="P:LightCommandRequest.State">
+      <summary>Desired on/off state. HasState must be true.</summary>
+    </member>
+    <member name="P:LightCommandRequest.HasBrightness">
+      <summary>Set to true to apply Brightness. When false, ESPHome ignores the corresponding Brightness value even when that value is non-default.</summary>
+    </member>
+    <member name="P:LightCommandRequest.Brightness">
+      <summary>Normalized light value in the range 0.0..1.0. HasBrightness must be true.</summary>
+    </member>
+    <member name="P:LightCommandRequest.HasColorMode">
+      <summary>Set to true to apply ColorMode. When false, ESPHome ignores the corresponding ColorMode value even when that value is non-default.</summary>
+    </member>
+    <member name="P:LightCommandRequest.ColorMode">
+      <summary>ESPHome ColorMode compatible with the entity's SupportedColorModes. HasColorMode must be true.</summary>
+    </member>
+    <member name="P:LightCommandRequest.HasColorBrightness">
+      <summary>Set to true to apply ColorBrightness. When false, ESPHome ignores the corresponding ColorBrightness value even when that value is non-default.</summary>
+    </member>
+    <member name="P:LightCommandRequest.ColorBrightness">
+      <summary>Normalized light value in the range 0.0..1.0. HasColorBrightness must be true.</summary>
+    </member>
+    <member name="P:LightCommandRequest.HasRgb">
+      <summary>Set to true to apply Rgb. When false, ESPHome ignores the corresponding Rgb value even when that value is non-default.</summary>
+    </member>
+    <member name="P:LightCommandRequest.Red">
+      <summary>Normalized light value in the range 0.0..1.0. HasRgb must be true.</summary>
+    </member>
+    <member name="P:LightCommandRequest.Green">
+      <summary>Normalized light value in the range 0.0..1.0. HasRgb must be true.</summary>
+    </member>
+    <member name="P:LightCommandRequest.Blue">
+      <summary>Normalized light value in the range 0.0..1.0. HasRgb must be true.</summary>
+    </member>
+    <member name="P:LightCommandRequest.HasWhite">
+      <summary>Set to true to apply White. When false, ESPHome ignores the corresponding White value even when that value is non-default.</summary>
+    </member>
+    <member name="P:LightCommandRequest.White">
+      <summary>Normalized light value in the range 0.0..1.0. HasWhite must be true.</summary>
+    </member>
+    <member name="P:LightCommandRequest.HasColorTemperature">
+      <summary>Set to true to apply ColorTemperature. When false, ESPHome ignores the corresponding ColorTemperature value even when that value is non-default.</summary>
+    </member>
+    <member name="P:LightCommandRequest.ColorTemperature">
+      <summary>Target color temperature in mireds. HasColorTemperature must be true; respect the entity MinMireds and MaxMireds.</summary>
+    </member>
+    <member name="P:LightCommandRequest.HasColdWhite">
+      <summary>Set to true to apply ColdWhite. When false, ESPHome ignores the corresponding ColdWhite value even when that value is non-default.</summary>
+    </member>
+    <member name="P:LightCommandRequest.ColdWhite">
+      <summary>Normalized light value in the range 0.0..1.0. HasColdWhite must be true.</summary>
+    </member>
+    <member name="P:LightCommandRequest.HasWarmWhite">
+      <summary>Set to true to apply WarmWhite. When false, ESPHome ignores the corresponding WarmWhite value even when that value is non-default.</summary>
+    </member>
+    <member name="P:LightCommandRequest.WarmWhite">
+      <summary>Normalized light value in the range 0.0..1.0. HasWarmWhite must be true.</summary>
+    </member>
+    <member name="P:LightCommandRequest.HasTransitionLength">
+      <summary>Set to true to apply TransitionLength. When false, ESPHome ignores the corresponding TransitionLength value even when that value is non-default.</summary>
+    </member>
+    <member name="P:LightCommandRequest.TransitionLength">
+      <summary>Transition duration in milliseconds. HasTransitionLength must be true.</summary>
+    </member>
+    <member name="P:LightCommandRequest.HasFlashLength">
+      <summary>Set to true to apply FlashLength. When false, ESPHome ignores the corresponding FlashLength value even when that value is non-default.</summary>
+    </member>
+    <member name="P:LightCommandRequest.FlashLength">
+      <summary>Flash duration in milliseconds. HasFlashLength must be true.</summary>
+    </member>
+    <member name="P:LightCommandRequest.HasEffect">
+      <summary>Set to true to apply Effect. When false, ESPHome ignores the corresponding Effect value even when that value is non-default.</summary>
+    </member>
+    <member name="P:LightCommandRequest.Effect">
+      <summary>Effect name from ListEntitiesLightResponse.Effects. HasEffect must be true.</summary>
+    </member>
+    <member name="P:LightCommandRequest.DeviceId">
+      <summary>Device or sub-device identifier from the matching entity description. Use 0 for the primary device when no sub-device identifier is present.</summary>
+    </member>
+    <member name="T:SwitchCommandRequest">
+      <inheritdoc cref="M:SwitchCommandRequest.#ctor"/>
+    </member>
+    <member name="M:SwitchCommandRequest.#ctor">
+      <summary>
+        Sets the on/off state of an ESPHome switch entity.<para>State is always applied; this command has no HasState presence flag.</para>
+      </summary>
+    </member>
+    <member name="P:SwitchCommandRequest.Key">
+      <summary>Entity protocol key. Copy this value from the matching ListEntities response. Do not derive it from Name or ObjectId.</summary>
+    </member>
+    <member name="P:SwitchCommandRequest.State">
+      <summary>Desired switch state. The field is always applied; there is no HasState flag.</summary>
+    </member>
+    <member name="P:SwitchCommandRequest.DeviceId">
+      <summary>Device or sub-device identifier from the matching entity description. Use 0 for the primary device when no sub-device identifier is present.</summary>
+    </member>
+    <member name="T:ClimateCommandRequest">
+      <inheritdoc cref="M:ClimateCommandRequest.#ctor"/>
+    </member>
+    <member name="M:ClimateCommandRequest.#ctor">
+      <summary>
+        Controls an ESPHome climate entity.<para>Required: Mode -&gt; HasMode. TargetTemperature -&gt; HasTargetTemperature. TargetTemperatureLow -&gt; HasTargetTemperatureLow. TargetTemperatureHigh -&gt; HasTargetTemperatureHigh. FanMode -&gt; HasFanMode. SwingMode -&gt; HasSwingMode. CustomFanMode -&gt; HasCustomFanMode. Preset -&gt; HasPreset. CustomPreset -&gt; HasCustomPreset. TargetHumidity -&gt; HasTargetHumidity.</para>
+        <para>Use modes, fan modes, swing modes, presets, and custom values advertised by the matching ListEntitiesClimateResponse.</para>
+        <para>Target temperatures use the entity TemperatureUnit and should respect VisualMinTemperature, VisualMaxTemperature, and VisualTargetTemperatureStep. TargetHumidity should respect VisualMinHumidity and VisualMaxHumidity when supported.</para>
+        <para>For peers older than API 1.5, the AWAY preset uses UnusedHasLegacyAway/UnusedLegacyAway instead of HasPreset/Preset.</para>
+      </summary>
+    </member>
+    <member name="P:ClimateCommandRequest.Key">
+      <summary>Entity protocol key. Copy this value from the matching ListEntities response. Do not derive it from Name or ObjectId.</summary>
+    </member>
+    <member name="P:ClimateCommandRequest.HasMode">
+      <summary>Set to true to apply Mode. When false, ESPHome ignores the corresponding Mode value even when that value is non-default.</summary>
+    </member>
+    <member name="P:ClimateCommandRequest.Mode">
+      <summary>Desired Mode; use a value advertised by the matching ListEntitiesClimateResponse. HasMode must be true.</summary>
+    </member>
+    <member name="P:ClimateCommandRequest.HasTargetTemperature">
+      <summary>Set to true to apply TargetTemperature. When false, ESPHome ignores the corresponding TargetTemperature value even when that value is non-default.</summary>
+    </member>
+    <member name="P:ClimateCommandRequest.TargetTemperature">
+      <summary>Target temperature in the entity's advertised TemperatureUnit. HasTargetTemperature must be true; respect the visual temperature limits.</summary>
+    </member>
+    <member name="P:ClimateCommandRequest.HasTargetTemperatureLow">
+      <summary>Set to true to apply TargetTemperatureLow. When false, ESPHome ignores the corresponding TargetTemperatureLow value even when that value is non-default.</summary>
+    </member>
+    <member name="P:ClimateCommandRequest.TargetTemperatureLow">
+      <summary>Target temperature in the entity's advertised TemperatureUnit. HasTargetTemperatureLow must be true; respect the visual temperature limits.</summary>
+    </member>
+    <member name="P:ClimateCommandRequest.HasTargetTemperatureHigh">
+      <summary>Set to true to apply TargetTemperatureHigh. When false, ESPHome ignores the corresponding TargetTemperatureHigh value even when that value is non-default.</summary>
+    </member>
+    <member name="P:ClimateCommandRequest.TargetTemperatureHigh">
+      <summary>Target temperature in the entity's advertised TemperatureUnit. HasTargetTemperatureHigh must be true; respect the visual temperature limits.</summary>
+    </member>
+    <member name="P:ClimateCommandRequest.UnusedHasLegacyAway">
+      <summary>Deprecated compatibility presence flag for the legacy AWAY preset on peers older than API 1.5. Set to true together with UnusedLegacyAway when using that legacy representation.</summary>
+    </member>
+    <member name="P:ClimateCommandRequest.UnusedLegacyAway">
+      <summary>Deprecated legacy AWAY value for peers older than API 1.5. UnusedHasLegacyAway must be true; true represents AWAY and false clears the legacy away state.</summary>
+    </member>
+    <member name="P:ClimateCommandRequest.HasFanMode">
+      <summary>Set to true to apply FanMode. When false, ESPHome ignores the corresponding FanMode value even when that value is non-default.</summary>
+    </member>
+    <member name="P:ClimateCommandRequest.FanMode">
+      <summary>Desired FanMode; use a value advertised by the matching ListEntitiesClimateResponse. HasFanMode must be true.</summary>
+    </member>
+    <member name="P:ClimateCommandRequest.HasSwingMode">
+      <summary>Set to true to apply SwingMode. When false, ESPHome ignores the corresponding SwingMode value even when that value is non-default.</summary>
+    </member>
+    <member name="P:ClimateCommandRequest.SwingMode">
+      <summary>Desired SwingMode; use a value advertised by the matching ListEntitiesClimateResponse. HasSwingMode must be true.</summary>
+    </member>
+    <member name="P:ClimateCommandRequest.HasCustomFanMode">
+      <summary>Set to true to apply CustomFanMode. When false, ESPHome ignores the corresponding CustomFanMode value even when that value is non-default.</summary>
+    </member>
+    <member name="P:ClimateCommandRequest.CustomFanMode">
+      <summary>Desired CustomFanMode; use a value advertised by the matching ListEntitiesClimateResponse. HasCustomFanMode must be true.</summary>
+    </member>
+    <member name="P:ClimateCommandRequest.HasPreset">
+      <summary>Set to true to apply Preset. When false, ESPHome ignores the corresponding Preset value even when that value is non-default.</summary>
+    </member>
+    <member name="P:ClimateCommandRequest.Preset">
+      <summary>Desired Preset; use a value advertised by the matching ListEntitiesClimateResponse. HasPreset must be true.</summary>
+    </member>
+    <member name="P:ClimateCommandRequest.HasCustomPreset">
+      <summary>Set to true to apply CustomPreset. When false, ESPHome ignores the corresponding CustomPreset value even when that value is non-default.</summary>
+    </member>
+    <member name="P:ClimateCommandRequest.CustomPreset">
+      <summary>Desired CustomPreset; use a value advertised by the matching ListEntitiesClimateResponse. HasCustomPreset must be true.</summary>
+    </member>
+    <member name="P:ClimateCommandRequest.HasTargetHumidity">
+      <summary>Set to true to apply TargetHumidity. When false, ESPHome ignores the corresponding TargetHumidity value even when that value is non-default.</summary>
+    </member>
+    <member name="P:ClimateCommandRequest.TargetHumidity">
+      <summary>Target humidity value. HasTargetHumidity must be true; respect VisualMinHumidity and VisualMaxHumidity when the feature is supported.</summary>
+    </member>
+    <member name="P:ClimateCommandRequest.DeviceId">
+      <summary>Device or sub-device identifier from the matching entity description. Use 0 for the primary device when no sub-device identifier is present.</summary>
+    </member>
+    <member name="T:WaterHeaterCommandRequest">
+      <inheritdoc cref="M:WaterHeaterCommandRequest.#ctor"/>
+    </member>
+    <member name="M:WaterHeaterCommandRequest.#ctor">
+      <summary>
+        Controls an ESPHome water-heater entity.<para>Required: Mode -&gt; include bit 1 in HasFields. TargetTemperature -&gt; bit 2. TargetTemperatureLow -&gt; bit 8. TargetTemperatureHigh -&gt; bit 16. On state -&gt; bit 32. Away state -&gt; bit 64.</para>
+        <para>State is a bitmask: bit 0 (1) represents away and bit 1 (2) represents on. To explicitly clear away or on, include the corresponding HasFields bit and leave that State bit clear.</para>
+        <para>HasFields bit 4 is the deprecated combined State selector; prefer the granular OnState and AwayState selectors.</para>
+        <para>Use modes, temperature unit, minimum/maximum temperature, and target-temperature step advertised by ListEntitiesWaterHeaterResponse.</para>
+      </summary>
+    </member>
+    <member name="P:WaterHeaterCommandRequest.Key">
+      <summary>Entity protocol key. Copy this value from the matching ListEntities response. Do not derive it from Name or ObjectId.</summary>
+    </member>
+    <member name="P:WaterHeaterCommandRequest.HasFields">
+      <summary>Bitmask selecting fields to apply: Mode=1, TargetTemperature=2, deprecated combined State=4, TargetTemperatureLow=8, TargetTemperatureHigh=16, OnState=32, AwayState=64.</summary>
+    </member>
+    <member name="P:WaterHeaterCommandRequest.Mode">
+      <summary>Desired WaterHeaterMode. Include bit 1 in HasFields and use a mode advertised by ListEntitiesWaterHeaterResponse.</summary>
+    </member>
+    <member name="P:WaterHeaterCommandRequest.TargetTemperature">
+      <summary>Target temperature. Include bit 2 in HasFields and respect the entity temperature unit/range.</summary>
+    </member>
+    <member name="P:WaterHeaterCommandRequest.DeviceId">
+      <summary>Device or sub-device identifier from the matching entity description. Use 0 for the primary device when no sub-device identifier is present.</summary>
+    </member>
+    <member name="P:WaterHeaterCommandRequest.State">
+      <summary>State bitmask: bit 0 (1) = away and bit 1 (2) = on. Include HasFields bit 64 to apply the away bit and bit 32 to apply the on bit. To clear a state, include its HasFields bit and leave the corresponding State bit clear. Avoid deprecated HasFields bit 4.</summary>
+    </member>
+    <member name="P:WaterHeaterCommandRequest.TargetTemperatureLow">
+      <summary>Low target temperature for a range. Include bit 8 in HasFields.</summary>
+    </member>
+    <member name="P:WaterHeaterCommandRequest.TargetTemperatureHigh">
+      <summary>High target temperature for a range. Include bit 16 in HasFields.</summary>
+    </member>
+    <member name="T:NumberCommandRequest">
+      <inheritdoc cref="M:NumberCommandRequest.#ctor"/>
+    </member>
+    <member name="M:NumberCommandRequest.#ctor">
+      <summary>
+        Sets the value of an ESPHome number entity.<para>State should be within ListEntitiesNumberResponse.MinValue and MaxValue and should respect ListEntitiesNumberResponse.Step.</para>
+      </summary>
+    </member>
+    <member name="P:NumberCommandRequest.Key">
+      <summary>Entity protocol key. Copy this value from the matching ListEntities response. Do not derive it from Name or ObjectId.</summary>
+    </member>
+    <member name="P:NumberCommandRequest.State">
+      <summary>Target number value. Respect ListEntitiesNumberResponse.MinValue, MaxValue, and Step.</summary>
+    </member>
+    <member name="P:NumberCommandRequest.DeviceId">
+      <summary>Device or sub-device identifier from the matching entity description. Use 0 for the primary device when no sub-device identifier is present.</summary>
+    </member>
+    <member name="T:SelectCommandRequest">
+      <inheritdoc cref="M:SelectCommandRequest.#ctor"/>
+    </member>
+    <member name="M:SelectCommandRequest.#ctor">
+      <summary>
+        Sets the selected option of an ESPHome select entity.<para>State must exactly match one of ListEntitiesSelectResponse.Options.</para>
+      </summary>
+    </member>
+    <member name="P:SelectCommandRequest.Key">
+      <summary>Entity protocol key. Copy this value from the matching ListEntities response. Do not derive it from Name or ObjectId.</summary>
+    </member>
+    <member name="P:SelectCommandRequest.State">
+      <summary>Exact option string to select. Use one of ListEntitiesSelectResponse.Options.</summary>
+    </member>
+    <member name="P:SelectCommandRequest.DeviceId">
+      <summary>Device or sub-device identifier from the matching entity description. Use 0 for the primary device when no sub-device identifier is present.</summary>
+    </member>
+    <member name="T:SirenCommandRequest">
+      <inheritdoc cref="M:SirenCommandRequest.#ctor"/>
+    </member>
+    <member name="M:SirenCommandRequest.#ctor">
+      <summary>
+        Controls an ESPHome siren entity.<para>Required: State -&gt; HasState. Tone -&gt; HasTone. Duration -&gt; HasDuration. Volume -&gt; HasVolume.</para>
+        <para>Tone should be one of ListEntitiesSirenResponse.Tones. Use Duration only when SupportsDuration is true; Duration is expressed in seconds. Use Volume only when SupportsVolume is true; Volume is normalized to the range [0.0, 1.0].</para>
+      </summary>
+    </member>
+    <member name="P:SirenCommandRequest.Key">
+      <summary>Entity protocol key. Copy this value from the matching ListEntities response. Do not derive it from Name or ObjectId.</summary>
+    </member>
+    <member name="P:SirenCommandRequest.HasState">
+      <summary>Set to true to apply State. When false, ESPHome ignores the corresponding State value even when that value is non-default.</summary>
+    </member>
+    <member name="P:SirenCommandRequest.State">
+      <summary>Desired siren on/off state. HasState must be true.</summary>
+    </member>
+    <member name="P:SirenCommandRequest.HasTone">
+      <summary>Set to true to apply Tone. When false, ESPHome ignores the corresponding Tone value even when that value is non-default.</summary>
+    </member>
+    <member name="P:SirenCommandRequest.Tone">
+      <summary>Tone name from ListEntitiesSirenResponse.Tones. HasTone must be true.</summary>
+    </member>
+    <member name="P:SirenCommandRequest.HasDuration">
+      <summary>Set to true to apply Duration. When false, ESPHome ignores the corresponding Duration value even when that value is non-default.</summary>
+    </member>
+    <member name="P:SirenCommandRequest.Duration">
+      <summary>Siren duration in seconds. HasDuration must be true and ListEntitiesSirenResponse.SupportsDuration should be true.</summary>
+    </member>
+    <member name="P:SirenCommandRequest.HasVolume">
+      <summary>Set to true to apply Volume. When false, ESPHome ignores the corresponding Volume value even when that value is non-default.</summary>
+    </member>
+    <member name="P:SirenCommandRequest.Volume">
+      <summary>Normalized siren volume in the range [0.0, 1.0]. HasVolume must be true and ListEntitiesSirenResponse.SupportsVolume should be true.</summary>
+    </member>
+    <member name="P:SirenCommandRequest.DeviceId">
+      <summary>Device or sub-device identifier from the matching entity description. Use 0 for the primary device when no sub-device identifier is present.</summary>
+    </member>
+    <member name="T:LockCommandRequest">
+      <inheritdoc cref="M:LockCommandRequest.#ctor"/>
+    </member>
+    <member name="M:LockCommandRequest.#ctor">
+      <summary>
+        Controls an ESPHome lock entity.<para>Command selects lock, unlock, or open. Use OPEN only when ListEntitiesLockResponse.SupportsOpen is true.</para>
+        <para>HasCode and Code are marked as not implemented by the ESPHome Native API and current ESPHome command handling does not apply them. Do not rely on these fields to satisfy ListEntitiesLockResponse.RequiresCode.</para>
+      </summary>
+    </member>
+    <member name="P:LockCommandRequest.Key">
+      <summary>Entity protocol key. Copy this value from the matching ListEntities response. Do not derive it from Name or ObjectId.</summary>
+    </member>
+    <member name="P:LockCommandRequest.Command">
+      <summary>Lock operation to perform. Use OPEN only when the entity advertises SupportsOpen.</summary>
+    </member>
+    <member name="P:LockCommandRequest.HasCode">
+      <summary>Reserved compatibility field marked as not implemented by ESPHome. Current ESPHome lock command handling does not use this field.</summary>
+    </member>
+    <member name="P:LockCommandRequest.Code">
+      <summary>Reserved lock-code field marked as not implemented by ESPHome. Current ESPHome lock command handling does not apply this value.</summary>
+    </member>
+    <member name="P:LockCommandRequest.DeviceId">
+      <summary>Device or sub-device identifier from the matching entity description. Use 0 for the primary device when no sub-device identifier is present.</summary>
+    </member>
+    <member name="T:ButtonCommandRequest">
+      <inheritdoc cref="M:ButtonCommandRequest.#ctor"/>
+    </member>
+    <member name="M:ButtonCommandRequest.#ctor">
+      <summary>
+        Presses an ESPHome button entity.<para>The command is stateless and has no value or presence fields beyond entity identification.</para>
+      </summary>
+    </member>
+    <member name="P:ButtonCommandRequest.Key">
+      <summary>Entity protocol key. Copy this value from the matching ListEntities response. Do not derive it from Name or ObjectId.</summary>
+    </member>
+    <member name="P:ButtonCommandRequest.DeviceId">
+      <summary>Device or sub-device identifier from the matching entity description. Use 0 for the primary device when no sub-device identifier is present.</summary>
+    </member>
+    <member name="T:MediaPlayerCommandRequest">
+      <inheritdoc cref="M:MediaPlayerCommandRequest.#ctor"/>
+    </member>
+    <member name="M:MediaPlayerCommandRequest.#ctor">
+      <summary>
+        Controls an ESPHome media-player entity.<para>Required: Command -&gt; HasCommand. Volume -&gt; HasVolume. MediaUrl -&gt; HasMediaUrl. Announcement -&gt; HasAnnouncement.</para>
+        <para>Volume is normalized to the range [0.0, 1.0]. MediaUrl is the media resource URL or identifier understood by the target player. Announcement marks the media as an announcement when supported by the target player.</para>
+      </summary>
+    </member>
+    <member name="P:MediaPlayerCommandRequest.Key">
+      <summary>Entity protocol key. Copy this value from the matching ListEntities response. Do not derive it from Name or ObjectId.</summary>
+    </member>
+    <member name="P:MediaPlayerCommandRequest.HasCommand">
+      <summary>Set to true to apply Command. When false, ESPHome ignores the corresponding Command value even when that value is non-default.</summary>
+    </member>
+    <member name="P:MediaPlayerCommandRequest.Command">
+      <summary>MediaPlayerCommand to execute. HasCommand must be true.</summary>
+    </member>
+    <member name="P:MediaPlayerCommandRequest.HasVolume">
+      <summary>Set to true to apply Volume. When false, ESPHome ignores the corresponding Volume value even when that value is non-default.</summary>
+    </member>
+    <member name="P:MediaPlayerCommandRequest.Volume">
+      <summary>Normalized media-player volume in the range 0.0..1.0. HasVolume must be true.</summary>
+    </member>
+    <member name="P:MediaPlayerCommandRequest.HasMediaUrl">
+      <summary>Set to true to apply MediaUrl. When false, ESPHome ignores the corresponding MediaUrl value even when that value is non-default.</summary>
+    </member>
+    <member name="P:MediaPlayerCommandRequest.MediaUrl">
+      <summary>Media resource URL or identifier understood by the target player. HasMediaUrl must be true.</summary>
+    </member>
+    <member name="P:MediaPlayerCommandRequest.HasAnnouncement">
+      <summary>Set to true to apply Announcement. When false, ESPHome ignores the corresponding Announcement value even when that value is non-default.</summary>
+    </member>
+    <member name="P:MediaPlayerCommandRequest.Announcement">
+      <summary>Set whether the media should be treated as an announcement. HasAnnouncement must be true.</summary>
+    </member>
+    <member name="P:MediaPlayerCommandRequest.DeviceId">
+      <summary>Device or sub-device identifier from the matching entity description. Use 0 for the primary device when no sub-device identifier is present.</summary>
+    </member>
+    <member name="T:AlarmControlPanelCommandRequest">
+      <inheritdoc cref="M:AlarmControlPanelCommandRequest.#ctor"/>
+    </member>
+    <member name="M:AlarmControlPanelCommandRequest.#ctor">
+      <summary>
+        Sends a command to an ESPHome alarm control panel.<para>Command is required and must be an AlarmControlPanelStateCommand supported by the target entity.</para>
+        <para>Code has no HasCode flag. Provide Code when ListEntitiesAlarmControlPanelResponse.RequiresCode or RequiresCodeToArm applies to the selected operation.</para>
+      </summary>
+    </member>
+    <member name="P:AlarmControlPanelCommandRequest.Key">
+      <summary>Entity protocol key. Copy this value from the matching ListEntities response. Do not derive it from Name or ObjectId.</summary>
+    </member>
+    <member name="P:AlarmControlPanelCommandRequest.Command">
+      <summary>AlarmControlPanelStateCommand to execute.</summary>
+    </member>
+    <member name="P:AlarmControlPanelCommandRequest.Code">
+      <summary>Optional alarm code. Provide it when the entity requires a code for the requested operation.</summary>
+    </member>
+    <member name="P:AlarmControlPanelCommandRequest.DeviceId">
+      <summary>Device or sub-device identifier from the matching entity description. Use 0 for the primary device when no sub-device identifier is present.</summary>
+    </member>
+    <member name="T:TextCommandRequest">
+      <inheritdoc cref="M:TextCommandRequest.#ctor"/>
+    </member>
+    <member name="M:TextCommandRequest.#ctor">
+      <summary>
+        Sets the value of an ESPHome text entity.<para>State should satisfy ListEntitiesTextResponse.MinLength, MaxLength, and Pattern.</para>
+      </summary>
+    </member>
+    <member name="P:TextCommandRequest.Key">
+      <summary>Entity protocol key. Copy this value from the matching ListEntities response. Do not derive it from Name or ObjectId.</summary>
+    </member>
+    <member name="P:TextCommandRequest.State">
+      <summary>Target text value. Respect ListEntitiesTextResponse.MinLength, MaxLength, and Pattern.</summary>
+    </member>
+    <member name="P:TextCommandRequest.DeviceId">
+      <summary>Device or sub-device identifier from the matching entity description. Use 0 for the primary device when no sub-device identifier is present.</summary>
+    </member>
+    <member name="T:DateCommandRequest">
+      <inheritdoc cref="M:DateCommandRequest.#ctor"/>
+    </member>
+    <member name="M:DateCommandRequest.#ctor">
+      <summary>
+        Sets the value of an ESPHome date entity.<para>Year must be in the range [1970, 3000]. Month must be in [1, 12]. Day must be in [1, days-in-selected-month], with leap years respected.</para>
+      </summary>
+    </member>
+    <member name="P:DateCommandRequest.Key">
+      <summary>Entity protocol key. Copy this value from the matching ListEntities response. Do not derive it from Name or ObjectId.</summary>
+    </member>
+    <member name="P:DateCommandRequest.Year">
+      <summary>Calendar year in the range [1970, 3000]. Year, Month, and Day must form a valid calendar date.</summary>
+    </member>
+    <member name="P:DateCommandRequest.Month">
+      <summary>Calendar month in the range [1, 12]. Year, Month, and Day must form a valid calendar date.</summary>
+    </member>
+    <member name="P:DateCommandRequest.Day">
+      <summary>Calendar day in the range [1, days-in-selected-month]. Year, Month, and Day must form a valid calendar date.</summary>
+    </member>
+    <member name="P:DateCommandRequest.DeviceId">
+      <summary>Device or sub-device identifier from the matching entity description. Use 0 for the primary device when no sub-device identifier is present.</summary>
+    </member>
+    <member name="T:TimeCommandRequest">
+      <inheritdoc cref="M:TimeCommandRequest.#ctor"/>
+    </member>
+    <member name="M:TimeCommandRequest.#ctor">
+      <summary>
+        Sets the value of an ESPHome time entity.<para>Hour must be in the range [0, 23]. Minute and Second must each be in the range [0, 59].</para>
+      </summary>
+    </member>
+    <member name="P:TimeCommandRequest.Key">
+      <summary>Entity protocol key. Copy this value from the matching ListEntities response. Do not derive it from Name or ObjectId.</summary>
+    </member>
+    <member name="P:TimeCommandRequest.Hour">
+      <summary>Hour component in the range [0, 23].</summary>
+    </member>
+    <member name="P:TimeCommandRequest.Minute">
+      <summary>Minute component in the range [0, 59].</summary>
+    </member>
+    <member name="P:TimeCommandRequest.Second">
+      <summary>Second component in the range [0, 59].</summary>
+    </member>
+    <member name="P:TimeCommandRequest.DeviceId">
+      <summary>Device or sub-device identifier from the matching entity description. Use 0 for the primary device when no sub-device identifier is present.</summary>
+    </member>
+    <member name="T:ValveCommandRequest">
+      <inheritdoc cref="M:ValveCommandRequest.#ctor"/>
+    </member>
+    <member name="M:ValveCommandRequest.#ctor">
+      <summary>
+        Controls an ESPHome valve entity.<para>Required: Position -&gt; set HasPosition to true. Stop has no presence flag; set Stop to true to stop movement.</para>
+        <para>Position is normalized to the range [0.0, 1.0], where 0.0 is closed and 1.0 is open. Use Position only when ListEntitiesValveResponse.SupportsPosition is true and Stop only when SupportsStop is true.</para>
+      </summary>
+    </member>
+    <member name="P:ValveCommandRequest.Key">
+      <summary>Entity protocol key. Copy this value from the matching ListEntities response. Do not derive it from Name or ObjectId.</summary>
+    </member>
+    <member name="P:ValveCommandRequest.HasPosition">
+      <summary>Set to true to apply Position. When false, ESPHome ignores the corresponding Position value even when that value is non-default.</summary>
+    </member>
+    <member name="P:ValveCommandRequest.Position">
+      <summary>Target valve position normalized to 0.0..1.0, where 0.0 is closed and 1.0 is open. HasPosition must be true.</summary>
+    </member>
+    <member name="P:ValveCommandRequest.Stop">
+      <summary>Set to true to stop valve movement. Only use when the entity advertises SupportsStop.</summary>
+    </member>
+    <member name="P:ValveCommandRequest.DeviceId">
+      <summary>Device or sub-device identifier from the matching entity description. Use 0 for the primary device when no sub-device identifier is present.</summary>
+    </member>
+    <member name="T:DateTimeCommandRequest">
+      <inheritdoc cref="M:DateTimeCommandRequest.#ctor"/>
+    </member>
+    <member name="M:DateTimeCommandRequest.#ctor">
+      <summary>
+        Sets the value of an ESPHome datetime entity.<para>EpochSeconds is a Unix timestamp expressed as whole seconds since 1970-01-01T00:00:00Z.</para>
+      </summary>
+    </member>
+    <member name="P:DateTimeCommandRequest.Key">
+      <summary>Entity protocol key. Copy this value from the matching ListEntities response. Do not derive it from Name or ObjectId.</summary>
+    </member>
+    <member name="P:DateTimeCommandRequest.EpochSeconds">
+      <summary>Unix timestamp expressed as whole seconds since 1970-01-01T00:00:00Z.</summary>
+    </member>
+    <member name="P:DateTimeCommandRequest.DeviceId">
+      <summary>Device or sub-device identifier from the matching entity description. Use 0 for the primary device when no sub-device identifier is present.</summary>
+    </member>
+    <member name="T:UpdateCommandRequest">
+      <inheritdoc cref="M:UpdateCommandRequest.#ctor"/>
+    </member>
+    <member name="M:UpdateCommandRequest.#ctor">
+      <summary>
+        Controls an ESPHome update entity.<para>Command selects the UpdateCommand action to execute, such as UPDATE or CHECK.</para>
+      </summary>
+    </member>
+    <member name="P:UpdateCommandRequest.Key">
+      <summary>Entity protocol key. Copy this value from the matching ListEntities response. Do not derive it from Name or ObjectId.</summary>
+    </member>
+    <member name="P:UpdateCommandRequest.Command">
+      <summary>Update action to execute, such as UPDATE or CHECK.</summary>
+    </member>
+    <member name="P:UpdateCommandRequest.DeviceId">
+      <summary>Device or sub-device identifier from the matching entity description. Use 0 for the primary device when no sub-device identifier is present.</summary>
+    </member>
+    <member name="M:SubscribeBluetoothLEAdvertisementsRequest.#ctor">
+      <summary>
+        Subscribes to ESPHome Bluetooth LE advertisements.<para>Flags = 1 requests BluetoothLERawAdvertisementsResponse batches. Flags = 0 selects the deprecated parsed BluetoothLEAdvertisementResponse path, which was removed from ESPHome 2025.8.0.</para>
+      </summary>
+    </member>
+    <member name="P:SubscribeBluetoothLEAdvertisementsRequest.Flags">
+      <summary>Advertisement subscription flags. Use 1 for raw advertisement batches; 0 selects the deprecated parsed-advertisement path.</summary>
+    </member>
+    <member name="M:UnsubscribeBluetoothLEAdvertisementsRequest.#ctor">
+      <summary>Stops the Bluetooth LE advertisement subscription.</summary>
+    </member>
+    <member name="M:SubscribeBluetoothConnectionsFreeRequest.#ctor">
+      <summary>
+        Subscribes to Bluetooth proxy connection-capacity updates.<para>The device reports available, total, and allocated connection slots through BluetoothConnectionsFreeResponse.</para>
+      </summary>
+    </member>
+    <member name="M:BluetoothScannerSetModeRequest.#ctor">
+      <summary>
+        Changes the ESPHome Bluetooth scanner between supported scanner modes.<para>Use a BluetoothScannerMode value supported by the target device.</para>
+      </summary>
+    </member>
+    <member name="P:BluetoothScannerSetModeRequest.Mode">
+      <summary>Bluetooth scanner mode requested from the ESPHome proxy.</summary>
+    </member>
+    <member name="M:BluetoothDeviceRequest.#ctor">
+      <summary>
+        Requests a Bluetooth proxy connection-management operation for one peripheral.<para>The legacy CONNECT request type is deprecated. Use CONNECT_V3_WITH_CACHE when services are already cached and CONNECT_V3_WITHOUT_CACHE otherwise.</para>
+        <para>Provide AddressType for connection attempts. HasAddressType is a compatibility presence field marked for future removal; retain it only when required by the target protocol version.</para>
+      </summary>
+    </member>
+    <member name="P:BluetoothDeviceRequest.Address">
+      <summary>Bluetooth device address encoded as the UInt64 value used by ESPHome Native API messages. Use the same address value returned by advertisement, connection, or GATT responses.</summary>
+    </member>
+    <member name="P:BluetoothDeviceRequest.RequestType">
+      <summary>Bluetooth device operation. Prefer CONNECT_V3_WITH_CACHE or CONNECT_V3_WITHOUT_CACHE for connections; the legacy CONNECT value is deprecated.</summary>
+    </member>
+    <member name="P:BluetoothDeviceRequest.HasAddressType">
+      <summary>Compatibility presence flag for AddressType. Set it when the target protocol version requires AddressType for connection operations.</summary>
+    </member>
+    <member name="P:BluetoothDeviceRequest.AddressType">
+      <summary>Bluetooth LE address type used for the connection attempt.</summary>
+    </member>
+    <member name="M:BluetoothGATTGetServicesRequest.#ctor">
+      <summary>
+        Requests GATT service discovery for a connected Bluetooth peripheral.<para>Responses arrive as one or more BluetoothGATTGetServicesResponse messages followed by BluetoothGATTGetServicesDoneResponse.</para>
+      </summary>
+    </member>
+    <member name="P:BluetoothGATTGetServicesRequest.Address">
+      <summary>Bluetooth device address encoded as the UInt64 value used by ESPHome Native API messages. Use the same address value returned by advertisement, connection, or GATT responses.</summary>
+    </member>
+    <member name="M:BluetoothGATTReadRequest.#ctor">
+      <summary>
+        Reads a Bluetooth GATT characteristic by address and handle.<para>A complete high-level operation should correlate BluetoothGATTReadResponse or BluetoothGATTErrorResponse by Address and Handle.</para>
+      </summary>
+    </member>
+    <member name="P:BluetoothGATTReadRequest.Address">
+      <summary>Bluetooth device address encoded as the UInt64 value used by ESPHome Native API messages. Use the same address value returned by advertisement, connection, or GATT responses.</summary>
+    </member>
+    <member name="P:BluetoothGATTReadRequest.Handle">
+      <summary>Bluetooth GATT attribute handle. Use the handle returned by service discovery for the target characteristic or descriptor.</summary>
+    </member>
+    <member name="M:BluetoothGATTReadDescriptorRequest.#ctor">
+      <summary>
+        Reads a Bluetooth GATT descriptor by address and handle.<para>A complete high-level operation should correlate the response or error by Address and Handle.</para>
+      </summary>
+    </member>
+    <member name="P:BluetoothGATTReadDescriptorRequest.Address">
+      <summary>Bluetooth device address encoded as the UInt64 value used by ESPHome Native API messages. Use the same address value returned by advertisement, connection, or GATT responses.</summary>
+    </member>
+    <member name="P:BluetoothGATTReadDescriptorRequest.Handle">
+      <summary>Bluetooth GATT attribute handle. Use the handle returned by service discovery for the target characteristic or descriptor.</summary>
+    </member>
+    <member name="M:BluetoothGATTWriteRequest.#ctor">
+      <summary>
+        Writes raw bytes to a Bluetooth GATT characteristic.<para>Set Response to true when a write acknowledgement is required; set it to false for a write without acknowledgement.</para>
+      </summary>
+    </member>
+    <member name="P:BluetoothGATTWriteRequest.Address">
+      <summary>Bluetooth device address encoded as the UInt64 value used by ESPHome Native API messages. Use the same address value returned by advertisement, connection, or GATT responses.</summary>
+    </member>
+    <member name="P:BluetoothGATTWriteRequest.Handle">
+      <summary>Bluetooth GATT attribute handle. Use the handle returned by service discovery for the target characteristic or descriptor.</summary>
+    </member>
+    <member name="P:BluetoothGATTWriteRequest.Response">
+      <summary>True to request a write acknowledgement; false for a write without acknowledgement.</summary>
+    </member>
+    <member name="P:BluetoothGATTWriteRequest.Data">
+      <summary>Raw characteristic value bytes to write.</summary>
+    </member>
+    <member name="M:BluetoothGATTWriteDescriptorRequest.#ctor">
+      <summary>
+        Writes raw bytes to a Bluetooth GATT descriptor.<para>The request contains no Response flag; response correlation, when required by the operation, is handled separately.</para>
+      </summary>
+    </member>
+    <member name="P:BluetoothGATTWriteDescriptorRequest.Address">
+      <summary>Bluetooth device address encoded as the UInt64 value used by ESPHome Native API messages. Use the same address value returned by advertisement, connection, or GATT responses.</summary>
+    </member>
+    <member name="P:BluetoothGATTWriteDescriptorRequest.Handle">
+      <summary>Bluetooth GATT attribute handle. Use the handle returned by service discovery for the target characteristic or descriptor.</summary>
+    </member>
+    <member name="P:BluetoothGATTWriteDescriptorRequest.Data">
+      <summary>Raw descriptor value bytes to write.</summary>
+    </member>
+    <member name="M:BluetoothGATTNotifyRequest.#ctor">
+      <summary>
+        Enables or disables notifications for a Bluetooth GATT characteristic.<para>A start-notify operation should wait for the matching BluetoothGATTNotifyResponse and then consume BluetoothGATTNotifyDataResponse messages with the same Address and Handle.</para>
+      </summary>
+    </member>
+    <member name="P:BluetoothGATTNotifyRequest.Address">
+      <summary>Bluetooth device address encoded as the UInt64 value used by ESPHome Native API messages. Use the same address value returned by advertisement, connection, or GATT responses.</summary>
+    </member>
+    <member name="P:BluetoothGATTNotifyRequest.Handle">
+      <summary>Bluetooth GATT attribute handle. Use the handle returned by service discovery for the target characteristic or descriptor.</summary>
+    </member>
+    <member name="P:BluetoothGATTNotifyRequest.Enable">
+      <summary>True to enable notifications; false to disable them.</summary>
+    </member>
+    <member name="M:BluetoothSetConnectionParamsRequest.#ctor">
+      <summary>
+        Changes BLE link-layer connection parameters for a connected peripheral.<para>MinInterval and MaxInterval must be in the range [6, 3200] in units of 1.25 ms, and MaxInterval must be at least MinInterval. Latency must be in [0, 499]. Timeout must be in [10, 3200] in units of 10 ms.</para>
+        <para>The supervision-timeout relation must satisfy Timeout * 4 &gt; (1 + Latency) * MaxInterval.</para>
+      </summary>
+    </member>
+    <member name="P:BluetoothSetConnectionParamsRequest.Address">
+      <summary>Bluetooth device address encoded as the UInt64 value used by ESPHome Native API messages. Use the same address value returned by advertisement, connection, or GATT responses.</summary>
+    </member>
+    <member name="P:BluetoothSetConnectionParamsRequest.MinInterval">
+      <summary>Minimum connection interval, 6..3200 in units of 1.25 ms.</summary>
+    </member>
+    <member name="P:BluetoothSetConnectionParamsRequest.MaxInterval">
+      <summary>Maximum connection interval, 6..3200 in units of 1.25 ms. Must be at least MinInterval.</summary>
+    </member>
+    <member name="P:BluetoothSetConnectionParamsRequest.Latency">
+      <summary>Peripheral latency, 0..499.</summary>
+    </member>
+    <member name="P:BluetoothSetConnectionParamsRequest.Timeout">
+      <summary>Supervision timeout, 10..3200 in units of 10 ms. Must satisfy Timeout * 4 &gt; (1 + Latency) * MaxInterval.</summary>
+    </member>
+    <member name="M:SubscribeVoiceAssistantRequest.#ctor">
+      <summary>
+        Subscribes or unsubscribes from ESPHome Voice Assistant requests.<para>Subscribe = true starts the subscription; false removes it.</para>
+        <para>Flags selects subscription features. For API audio, verify the numeric flag required by the target protocol version; the supplied protocol definitions disagree between values 1 and 4.</para>
+      </summary>
+    </member>
+    <member name="P:SubscribeVoiceAssistantRequest.Subscribe">
+      <summary>True to subscribe this client to Voice Assistant requests; false to unsubscribe.</summary>
+    </member>
+    <member name="P:SubscribeVoiceAssistantRequest.Flags">
+      <summary>Voice Assistant subscription flags. For API audio, verify the numeric value required by the target protocol version because the supplied protocol definitions disagree between values 1 and 4.</summary>
+    </member>
+    <member name="M:VoiceAssistantResponse.#ctor">
+      <summary>
+        Acknowledges an incoming VoiceAssistantRequest that asked the client to start an audio server or API-audio session.<para>Set Error to true when startup fails. On success set Error to false and provide Port as required by the selected transport; Port = 0 selects API audio.</para>
+      </summary>
+    </member>
+    <member name="P:VoiceAssistantResponse.Port">
+      <summary>UDP server port returned after successfully starting the Voice Assistant audio server. Leave 0 when reporting Error = true.</summary>
+    </member>
+    <member name="P:VoiceAssistantResponse.Error">
+      <summary>Set to true when the requested Voice Assistant server/session could not be started.</summary>
+    </member>
+    <member name="M:VoiceAssistantEventData.#ctor">
+      <summary>Represents one name/value item attached to a Voice Assistant event.</summary>
+    </member>
+    <member name="P:VoiceAssistantEventData.Name">
+      <summary>Event-specific data key.</summary>
+    </member>
+    <member name="P:VoiceAssistantEventData.Value">
+      <summary>Event-specific data value.</summary>
+    </member>
+    <member name="M:VoiceAssistantEventResponse.#ctor">
+      <summary>
+        Sends a Voice Assistant pipeline event from the client to ESPHome.<para>EventType identifies the pipeline event. Data contains optional event-specific name/value pairs.</para>
+      </summary>
+    </member>
+    <member name="P:VoiceAssistantEventResponse.EventType">
+      <summary>Voice Assistant pipeline event being reported.</summary>
+    </member>
+    <member name="P:VoiceAssistantEventResponse.Data">
+      <summary>Optional event-specific name/value data.</summary>
+    </member>
+    <member name="M:VoiceAssistantAudio.#ctor">
+      <summary>
+        Transfers Voice Assistant audio over the ESPHome Native API.<para>When End is false, Data contains the primary audio chunk and Data2 optionally contains the second audio channel.</para>
+        <para>End = true signals the normal end of the API audio stream.</para>
+      </summary>
+    </member>
+    <member name="P:VoiceAssistantAudio.Data">
+      <summary>Primary Voice Assistant audio bytes. When End is true this may be empty.</summary>
+    </member>
+    <member name="P:VoiceAssistantAudio.End">
+      <summary>True to signal the normal end of the API audio stream; false for an audio data chunk.</summary>
+    </member>
+    <member name="P:VoiceAssistantAudio.Data2">
+      <summary>Optional second-channel audio bytes for devices that support multi-channel API audio.</summary>
+    </member>
+    <member name="M:VoiceAssistantTimerEventResponse.#ctor">
+      <summary>
+        Sends Voice Assistant timer state changes to ESPHome.<para>TotalSeconds and SecondsLeft are expressed in seconds.</para>
+      </summary>
+    </member>
+    <member name="P:VoiceAssistantTimerEventResponse.EventType">
+      <summary>Timer lifecycle event being reported.</summary>
+    </member>
+    <member name="P:VoiceAssistantTimerEventResponse.TimerId">
+      <summary>Stable timer identifier used to correlate timer updates.</summary>
+    </member>
+    <member name="P:VoiceAssistantTimerEventResponse.Name">
+      <summary>Optional timer name.</summary>
+    </member>
+    <member name="P:VoiceAssistantTimerEventResponse.TotalSeconds">
+      <summary>Total timer duration in seconds.</summary>
+    </member>
+    <member name="P:VoiceAssistantTimerEventResponse.SecondsLeft">
+      <summary>Remaining timer duration in seconds.</summary>
+    </member>
+    <member name="P:VoiceAssistantTimerEventResponse.IsActive">
+      <summary>True while the timer is active.</summary>
+    </member>
+    <member name="M:VoiceAssistantAnnounceRequest.#ctor">
+      <summary>
+        Requests a Voice Assistant announcement on the ESPHome device.<para>MediaId identifies the media to play. PreannounceMediaId optionally identifies media played before the announcement.</para>
+        <para>StartConversation requests a follow-up conversation after the announcement when supported.</para>
+      </summary>
+    </member>
+    <member name="P:VoiceAssistantAnnounceRequest.MediaId">
+      <summary>Media identifier or URL for the announcement.</summary>
+    </member>
+    <member name="P:VoiceAssistantAnnounceRequest.Text">
+      <summary>Optional announcement text.</summary>
+    </member>
+    <member name="P:VoiceAssistantAnnounceRequest.PreannounceMediaId">
+      <summary>Optional media identifier played before the main announcement.</summary>
+    </member>
+    <member name="P:VoiceAssistantAnnounceRequest.StartConversation">
+      <summary>True to request a follow-up Voice Assistant conversation after the announcement when supported.</summary>
+    </member>
+    <member name="M:VoiceAssistantExternalWakeWord.#ctor">
+      <summary>Describes an external wake-word model offered to an ESPHome Voice Assistant device.</summary>
+    </member>
+    <member name="P:VoiceAssistantExternalWakeWord.Id">
+      <summary>External wake-word model identifier.</summary>
+    </member>
+    <member name="P:VoiceAssistantExternalWakeWord.WakeWord">
+      <summary>Human-readable wake-word phrase.</summary>
+    </member>
+    <member name="P:VoiceAssistantExternalWakeWord.TrainedLanguages">
+      <summary>Language identifiers the external wake-word model is trained for.</summary>
+    </member>
+    <member name="P:VoiceAssistantExternalWakeWord.ModelType">
+      <summary>External wake-word model type.</summary>
+    </member>
+    <member name="P:VoiceAssistantExternalWakeWord.ModelSize">
+      <summary>External wake-word model size value supplied to ESPHome.</summary>
+    </member>
+    <member name="P:VoiceAssistantExternalWakeWord.ModelHash">
+      <summary>Hash identifying the external wake-word model contents.</summary>
+    </member>
+    <member name="P:VoiceAssistantExternalWakeWord.Url">
+      <summary>URL from which the external wake-word model can be obtained.</summary>
+    </member>
+    <member name="M:VoiceAssistantConfigurationRequest.#ctor">
+      <summary>
+        Requests Voice Assistant configuration while optionally supplying external wake-word model descriptors.<para>ExternalWakeWords may be empty when no external models are being offered.</para>
+      </summary>
+    </member>
+    <member name="P:VoiceAssistantConfigurationRequest.ExternalWakeWords">
+      <summary>External wake-word model descriptors offered to the ESPHome device. The collection may be empty.</summary>
+    </member>
+    <member name="M:VoiceAssistantSetConfiguration.#ctor">
+      <summary>
+        Sets the active Voice Assistant wake-word model identifiers.<para>ActiveWakeWords should contain identifiers returned by the Voice Assistant configuration exchange.</para>
+      </summary>
+    </member>
+    <member name="P:VoiceAssistantSetConfiguration.ActiveWakeWords">
+      <summary>Wake-word model identifiers that should remain active.</summary>
+    </member>
+    <member name="M:ZWaveProxyFrame.#ctor">
+      <summary>
+        Transfers one raw Z-Wave proxy frame.<para>Data contains the frame bytes expected by the ESPHome Z-Wave proxy.</para>
+      </summary>
+    </member>
+    <member name="P:ZWaveProxyFrame.Data">
+      <summary>Raw Z-Wave frame bytes.</summary>
+    </member>
+    <member name="M:ZWaveProxyRequest.#ctor">
+      <summary>
+        Sends a Z-Wave proxy control request.<para>SUBSCRIBE and UNSUBSCRIBE are the normal control operations. API 1.16 and newer can acknowledge these requests with ZWaveProxyRequestResponse.</para>
+        <para>HOME_ID_CHANGE uses request-specific Data; populate it according to the target firmware contract.</para>
+      </summary>
+    </member>
+    <member name="P:ZWaveProxyRequest.Type">
+      <summary>Z-Wave proxy control request type, such as SUBSCRIBE or UNSUBSCRIBE.</summary>
+    </member>
+    <member name="P:ZWaveProxyRequest.Data">
+      <summary>Request-specific payload. Populate according to the selected Z-Wave proxy request type and target firmware contract.</summary>
+    </member>
+    <member name="M:InfraredRFTransmitRawTimingsRequest.#ctor">
+      <summary>
+        Transmits raw infrared or radio-frequency timings through an ESPHome transmitter entity.<para>CarrierFrequency is in hertz. RepeatCount is the number of complete transmissions; 1 means transmit once.</para>
+        <para>Timings are signed microseconds: positive values are mark/TX-on durations and negative values are space/TX-off durations.</para>
+        <para>Modulation is ignored for infrared entities. For radio-frequency entities, use a modulation supported by the entity; numeric value 0 represents OOK.</para>
+      </summary>
+    </member>
+    <member name="P:InfraredRFTransmitRawTimingsRequest.DeviceId">
+      <summary>Device or sub-device identifier from the matching entity description. Use 0 for the primary device when no sub-device identifier is present.</summary>
+    </member>
+    <member name="P:InfraredRFTransmitRawTimingsRequest.Key">
+      <summary>Entity key identifying the transmitter instance.</summary>
+    </member>
+    <member name="P:InfraredRFTransmitRawTimingsRequest.CarrierFrequency">
+      <summary>Carrier frequency in hertz.</summary>
+    </member>
+    <member name="P:InfraredRFTransmitRawTimingsRequest.RepeatCount">
+      <summary>Number of complete transmissions. Use 1 to transmit once.</summary>
+    </member>
+    <member name="P:InfraredRFTransmitRawTimingsRequest.Timings">
+      <summary>Raw timing durations in microseconds. Positive values are mark/TX-on durations; negative values are space/TX-off durations.</summary>
+    </member>
+    <member name="P:InfraredRFTransmitRawTimingsRequest.Modulation">
+      <summary>Radio-frequency modulation numeric value; 0 represents OOK. Ignored for infrared entities.</summary>
+    </member>
+    <member name="M:SerialProxyConfigureRequest.#ctor">
+      <summary>
+        Configures UART parameters for one ESPHome serial-proxy instance.<para>Instance is zero-based. Baudrate is in bits per second. StopBits must be 1 or 2 and DataSize must be in the range [5, 8].</para>
+        <para>Configure acknowledgements are available from API 1.16 and newer.</para>
+      </summary>
+    </member>
+    <member name="P:SerialProxyConfigureRequest.Instance">
+      <summary>Zero-based serial-proxy instance index.</summary>
+    </member>
+    <member name="P:SerialProxyConfigureRequest.Baudrate">
+      <summary>UART baud rate in bits per second.</summary>
+    </member>
+    <member name="P:SerialProxyConfigureRequest.FlowControl">
+      <summary>True to enable hardware flow control.</summary>
+    </member>
+    <member name="P:SerialProxyConfigureRequest.Parity">
+      <summary>UART parity setting.</summary>
+    </member>
+    <member name="P:SerialProxyConfigureRequest.StopBits">
+      <summary>UART stop-bit count. Must be 1 or 2.</summary>
+    </member>
+    <member name="P:SerialProxyConfigureRequest.DataSize">
+      <summary>UART data-bit count. Must be between 5 and 8.</summary>
+    </member>
+    <member name="M:SerialProxyWriteRequest.#ctor">
+      <summary>
+        Writes raw bytes to one ESPHome serial-proxy instance.<para>Instance is zero-based. Data is written unchanged to the configured serial port.</para>
+      </summary>
+    </member>
+    <member name="P:SerialProxyWriteRequest.Instance">
+      <summary>Zero-based serial-proxy instance index.</summary>
+    </member>
+    <member name="P:SerialProxyWriteRequest.Data">
+      <summary>Raw bytes to write to the serial device.</summary>
+    </member>
+    <member name="M:SerialProxySetModemPinsRequest.#ctor">
+      <summary>
+        Sets serial-proxy modem-control line states.<para>Instance is zero-based. LineStates is a SerialProxyLineStateFlags bitmask.</para>
+        <para>The supplied api.proto references SerialProxyLineStateFlags but does not define its individual bit values, so do not infer them from this documentation.</para>
+        <para>Set-modem-pins acknowledgements are expected from API 1.16 and newer.</para>
+      </summary>
+    </member>
+    <member name="P:SerialProxySetModemPinsRequest.Instance">
+      <summary>Zero-based serial-proxy instance index.</summary>
+    </member>
+    <member name="P:SerialProxySetModemPinsRequest.LineStates">
+      <summary>Bitmask of SerialProxyLineStateFlags. The supplied api.proto does not define the individual flag-bit values.</summary>
+    </member>
+    <member name="M:SerialProxyGetModemPinsRequest.#ctor">
+      <summary>
+        Requests the current modem-control line states for one serial-proxy instance.<para>Instance is zero-based. Since API 1.16 the response can report INVALID_ARGUMENT for an out-of-range instance.</para>
+      </summary>
+    </member>
+    <member name="P:SerialProxyGetModemPinsRequest.Instance">
+      <summary>Zero-based serial-proxy instance index.</summary>
+    </member>
+    <member name="M:SerialProxyRequest.#ctor">
+      <summary>
+        Sends a simple serial-proxy control operation.<para>Only SUBSCRIBE, UNSUBSCRIBE, and FLUSH are valid outbound SerialProxyRequest.Type values.</para>
+        <para>CONFIGURE and SET_MODEM_PINS are acknowledgement identifiers only; api.proto states that sending either value in SerialProxyRequest.Type is an error answered with INVALID_ARGUMENT.</para>
+        <para>FLUSH has been acknowledged since this message was introduced. Other serial-proxy acknowledgements are sent from API 1.16.</para>
+      </summary>
+    </member>
+    <member name="P:SerialProxyRequest.Instance">
+      <summary>Zero-based serial-proxy instance index.</summary>
+    </member>
+    <member name="P:SerialProxyRequest.Type">
+      <summary>Outbound operation type. Only SUBSCRIBE, UNSUBSCRIBE, and FLUSH are valid here; CONFIGURE and SET_MODEM_PINS are acknowledgement-only identifiers.</summary>
+    </member>
+  </members>
+</doc>

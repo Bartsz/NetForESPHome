@@ -1,0 +1,45 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>NetForESPHome.Client</PackageId>
+    <Authors>BartS</Authors> 
+    <Description>
+      Idiomatic .NET client for the ESPHome Native API protocol.
+      Supports ESPHome device discovery, plaintext and Noise-encrypted connections,
+      entity state subscriptions, device information, Bluetooth proxy features,
+      and other Native API functionality.
+    </Description>
+
+    <PackageTags>ESPHome;IoT;SmartHome;NativeAPI;ESP32</PackageTags>
+
+    <RepositoryUrl>https://github.com/Bartsz/NetForESPHome</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageProjectUrl>https://github.com/Bartsz/NetForESPHome</PackageProjectUrl>
+
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>.\README.md</PackageReadmeFile>
+
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+ 
+  <ItemGroup>
+    <None Include=".\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Zeroconf" />
+    <PackageReference Include="Noise.NET" />
+  </ItemGroup>
+  
+  <ItemGroup>
+    <ProjectReference Include="..\NetForESPHome.DomainModel\NetForESPHome.DomainModel.csproj" />
+    <ProjectReference Include="..\NetForESPHome.Transport\NetForESPHome.Transports.csproj" />
+  </ItemGroup>
+
+
+</Project>

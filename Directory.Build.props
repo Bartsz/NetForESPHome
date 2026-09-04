@@ -1,0 +1,28 @@
+<Project>
+    
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Using Include="System" />
+    <Using Include="System.Collections.Generic" />
+    <Using Include="System.Globalization" />
+    <Using Include="System.Collections.Generic" />
+    <Using Include="System.Linq" />   
+    <Using Include="System.Threading.Tasks" />    
+  </ItemGroup>
+
+  <ItemGroup> 
+    <PackageReference Include="Meziantou.Analyzer" PrivateAssets="all" IncludeAssets="runtime; build; native; contentfiles; analyzers; buildtransitive" />
+  </ItemGroup>
+
+  <!-- Make the root namespace visible to source generators for all projects -->
+  <ItemGroup>
+    <CompilerVisibleProperty Include="RootNamespace" />
+    <CompilerVisibleProperty Include="AssemblyName" />
+  </ItemGroup>
+
+</Project>

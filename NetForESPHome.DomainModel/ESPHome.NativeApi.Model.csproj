@@ -1,0 +1,33 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <GrpcToolsVersion>2.72.0</GrpcToolsVersion>
+  </PropertyGroup>
+  
+  <Target Name="FetchProto" BeforeTargets="Protobuf_BeforeCompile">
+    <Message Text="Checking for proto files..." Importance="high" />
+    <Exec Condition="!Exists('Protos\api.proto')" Command="curl --create-dirs -o Protos/api.proto https://raw.githubusercontent.com/esphome/esphome/refs/heads/release/esphome/components/api/api.proto" />
+    <Exec Condition="!Exists('Protos\api_options.proto')" Command="curl --create-dirs -o Protos/api_options.proto https://raw.githubusercontent.com/esphome/esphome/refs/heads/release/esphome/components/api/api_options.proto" />
+    <Message Text="Done Checking for proto files..." Importance="high" />
+  </Target>
+
+  <ItemGroup>
+    <Protobuf
+      Include="Protos\*.proto"
+      ProtoRoot="Protos\"
+      GrpcServices="None"
+      AdditionalImportDirs="$(Protobuf_StandardImportsPath)"
+      AdditionalProtocOptions="--csharp_opt=base_namespace=ESPHome.NativeApi.Model"
+      >
+    </Protobuf>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Google.Protobuf" Version="3.31.1" />
+    <PackageReference Include="Grpc.Tools" Version="2.72.0" PrivateAssets="All" IncludeAssets="runtime; build; native; contentfiles; analyzers; buildtransitive" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,45 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+
+  <PropertyGroup>
+    <PackageId>NetForESPHome.ServerMock</PackageId>
+    <Authors>BartS</Authors>
+
+    <Description>
+      Mock server implementation of the ESPHome Native API protocol for .NET.
+      Intended for integration tests, development, protocol testing, and simulation
+      of basic ESPHome device behavior, including entity states, subscriptions,
+      plaintext and Noise-encrypted connections, mDNS advertisement, and Bluetooth proxy scenarios.
+    </Description>
+
+    <PackageTags>ESPHome;IoT;SmartHome;NativeAPI;Mock;Testing;ESP32</PackageTags>
+
+    <RepositoryUrl>https://github.com/Bartsz/NetForESPHome</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageProjectUrl>https://github.com/Bartsz/NetForESPHome</PackageProjectUrl>
+
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="\README.md" Pack="true" PackagePath="README.md" />
+  </ItemGroup>
+
+
+  <ItemGroup>
+    <ProjectReference Include="..\NetForESPHome.DomainModel\NetForESPHome.DomainModel.csproj" />
+    <ProjectReference Include="..\NetForESPHome.Transport\NetForESPHome.Transports.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Noise.NET" />
+    <PackageReference Include="Makaretu.Dns.Multicast.New" />
+  </ItemGroup>
+</Project>

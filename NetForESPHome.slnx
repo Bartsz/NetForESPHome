@@ -1,0 +1,19 @@
+<Solution>
+ <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Folder Name="/config/">
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+  </Folder>
+  <Project Path="NetForESPHome.Client.Example/NetForESPHome.Client.Example.csproj" />
+  <Project Path="NetForESPHome.Client/NetForESPHome.Client.csproj" />
+  <Project Path="NetForESPHome.DomainModel/NetForESPHome.DomainModel.csproj" />
+  <Project Path="NetForESPHome.Server.Benchmarks/NetForESPHome.Server.Benchmarks.csproj" />
+  <Project Path="NetForESPHome.ServerMock.Example/NetForESPHome.ServerMock.Example.csproj" />
+  <Project Path="NetForESPHome.ServerMock/NetForESPHome.ServerMock.csproj" Id="7717eb72-1020-48af-871f-6e78a6a6a614" />
+  <Project Path="NetForESPHome.Transport/NetForESPHome.Transports.csproj" Id="26e27d85-6426-4391-a2c1-0450436b19aa" />
+  <Project Path="NetForESPHome.UnitTests/NetForESPHome.UnitTests.csproj" Id="2d0832b9-77f1-442e-a573-85c353d7dbaa" />
+</Solution>
