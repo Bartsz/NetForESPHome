@@ -14,9 +14,9 @@
 
     <PackageTags>ESPHome;IoT;SmartHome;NativeAPI;Mock;Testing;ESP32</PackageTags>
 
-    <RepositoryUrl>https://github.com/Bartsz/NetForESPHome</RepositoryUrl>
+    <RepositoryUrl>https://github.com/Bartsz/NetForESPHome/tree/dev</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <PackageProjectUrl>https://github.com/Bartsz/NetForESPHome</PackageProjectUrl>
+    <PackageProjectUrl>https://github.com/Bartsz/NetForESPHome/tree/dev</PackageProjectUrl>
 
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
