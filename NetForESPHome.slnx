@@ -8,6 +8,9 @@
     <File Path="Directory.Build.props" />
     <File Path="Directory.Packages.props" />
   </Folder>
+  <Folder Name="/Solution Items/">
+    <File Path="README.md" />
+  </Folder>
   <Project Path="NetForESPHome.Client.Example/NetForESPHome.Client.Example.csproj" />
   <Project Path="NetForESPHome.Client/NetForESPHome.Client.csproj" />
   <Project Path="NetForESPHome.DomainModel/NetForESPHome.DomainModel.csproj" />
