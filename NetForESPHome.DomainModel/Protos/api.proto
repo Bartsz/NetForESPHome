@@ -1,5 +1,7 @@
 syntax = "proto3";
 
+option csharp_namespace = "NetForESPHome.DomainModel.Native";
+
 import "api_options.proto";
 
 service APIConnection {
@@ -1218,6 +1220,7 @@ message ListEntitiesClimateResponse {
   uint32 feature_flags = 27;
   TemperatureUnit temperature_unit = 28;
 }
+
 message ClimateStateResponse {
   option (id) = 47;
   option (base_class) = "StateResponseProtoMessage";

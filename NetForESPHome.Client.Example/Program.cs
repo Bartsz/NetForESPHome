@@ -1,6 +1,8 @@
 ﻿using Microsoft.Extensions.Logging;
+using NetForESPHome.DomainModel.Native;
 using NetForESPHome.Transports;
 using System.Net.Sockets;
+using Zeroconf;
 
 namespace NetForESPHome.Client.Example;
 
@@ -9,7 +11,7 @@ public static class Program
     public static async Task Main(string[] args)
     {
         var logger = CreateLogger(Microsoft.Extensions.Logging.LogLevel.Trace);
-        var zeroConfHosts = await EspHomeClient.DiscoverAsync().ConfigureAwait(false);
+        var zeroConfHosts = await DiscoverAsync().ConfigureAwait(false);
 
         if (zeroConfHosts is null)
         {
@@ -23,15 +25,15 @@ public static class Program
         }
 
         var firstService = zeroConfHosts.Services.First().Value;
-   
+
         using var connectionProbe = new ESPHomeClientConnectionMethodDetector(new TcpClient(), zeroConfHosts.IPAddress, firstService.Port);
         var connectionType = await connectionProbe.GetConnectionMethodAsync().ConfigureAwait(false);
-         
+
         string? noisePsk = string.Empty;
 
         if (connectionType == ConnectionMethod.Noise)
         {
-            Console.WriteLine("Server requires Noise pass key - plaes paste 32-character base64 pass key:");
+            Console.WriteLine("Server requires Noise pass key -  paste 32-character base64 pass key and press enter:");
             noisePsk = Console.ReadLine();
             noisePsk = noisePsk?.Trim();
         }
@@ -45,78 +47,115 @@ public static class Program
         };
 
         var espHomeClient = new EspHomeClient(zeroConfHosts.IPAddress, firstService.Port, noisePsk, logger: logger);
+
+        var task1 = ListienTOGeneralMessages(logger, shutdownCancellation, espHomeClient);//.ConfigureAwait(false);
+        var task2 = ListenToStateMessages(logger, shutdownCancellation, espHomeClient);//.ConfigureAwait(false);
+
         await espHomeClient.ConnectAsync(CancellationToken.None).ConfigureAwait(false);
-        var entities = await espHomeClient.RequestEntitiesListRefresh().ConfigureAwait(false);
+
+        var entities = await  espHomeClient.GetEntitiesAndServicesAsync().ConfigureAwait(false);
+        
         await espHomeClient.StartStatesSubscriptionAsync().ConfigureAwait(false);
+
 
         Console.WriteLine($"ESPHome client started on port {firstService.Port}.");
         Console.WriteLine("Press Ctrl+C to stop.");
 
+        await Task.WhenAll(task1, task2).ConfigureAwait(false);
+    }
+
+
+    private static async Task ListenToStateMessages(ILogger<EspHomeClient> logger, CancellationTokenSource shutdownCancellation, EspHomeClient espHomeClient)
+    {
         while (!shutdownCancellation.IsCancellationRequested)
         {
-            var msg = await espHomeClient.GetOutputMessageAsync(shutdownCancellation.Token).ConfigureAwait(false);
-            logger.LogTrace($"Recieved Message type: {msg.MessageType}");
-            switch (msg.MessageType)
+            var msg = await espHomeClient.GetIncomingStateChangeMessageAsync(shutdownCancellation.Token).ConfigureAwait(false);
+            //logger.LogTrace($"Recieved Message type: {msg.StateType}");
+            switch (msg.StateType)
             {
-                case EspHomeMessageType.BluetoothAdvertisementReceived:
+                case ESPHomeEntityStateType.AlarmControlPanelState:
                     break;
-                case EspHomeMessageType.BluetoothRawAdvertisementsReceived:
+                case ESPHomeEntityStateType.BinarySensorState:
                     break;
-                case EspHomeMessageType.BluetoothConnectionChanged:
+                case ESPHomeEntityStateType.CameraImage:
                     break;
-                case EspHomeMessageType.BluetoothGattNotification:
+                case ESPHomeEntityStateType.ClimateState:
                     break;
-                case EspHomeMessageType.EspHomeEntityStateChanged:
+                case ESPHomeEntityStateType.CoverState:
                     break;
-                case EspHomeMessageType.EspHomeEntitiesListReceived:
+                case ESPHomeEntityStateType.DateState:
                     break;
-                case EspHomeMessageType.EspHomeEntitiesServicesListReceived:
+                case ESPHomeEntityStateType.DateTimeState:
                     break;
-                case EspHomeMessageType.EspHomeDeviceInfoReceived:
+                case ESPHomeEntityStateType.Event:
                     break;
-                case EspHomeMessageType.EspHomeDeviceCapabilitiesReceived:
+                case ESPHomeEntityStateType.FanState:
                     break;
-                case EspHomeMessageType.CameraImageReceived:
+                case ESPHomeEntityStateType.LightState:
                     break;
-                case EspHomeMessageType.LogReceived:
+                case ESPHomeEntityStateType.LockState:
                     break;
-                case EspHomeMessageType.HomeAssistantActionRequested:
+                case ESPHomeEntityStateType.MediaPlayerState:
                     break;
-                case EspHomeMessageType.EspHomeRequestedState:
+                case ESPHomeEntityStateType.NumberState:
                     break;
-                case EspHomeMessageType.EspHomeRequestedStateSubscription:
+                case ESPHomeEntityStateType.SelectState:
                     break;
-                case EspHomeMessageType.BluetoothConnectionsFreeChanged:
+                case ESPHomeEntityStateType.SensorState when (msg is SensorStateResponse state):
+                    logger.LogTrace(state.State.ToString());
                     break;
-                case EspHomeMessageType.BluetoothScannerStateChanged:
+                case ESPHomeEntityStateType.SirenState:
                     break;
-                case EspHomeMessageType.ZWaveProxyFrameReceived:
+                case ESPHomeEntityStateType.SwitchState:
                     break;
-                case EspHomeMessageType.ZWaveProxyRequestReceived:
+                case ESPHomeEntityStateType.TextSensorState when (msg is TextSensorStateResponse textSensorMsg):
+                    logger.LogTrace(textSensorMsg.State);
                     break;
-                case EspHomeMessageType.InfraredRFReceived:
+                case ESPHomeEntityStateType.TextState when (msg is TextStateResponse textMsg):
+                    logger.LogTrace(textMsg.State);
                     break;
-                case EspHomeMessageType.SerialProxyDataReceived:
+                case ESPHomeEntityStateType.TimeState:
                     break;
-                case EspHomeMessageType.VoiceAssistantStartRequested:
+                case ESPHomeEntityStateType.UpdateState:
                     break;
-                case EspHomeMessageType.VoiceAssistantStopRequested:
+                case ESPHomeEntityStateType.ValveState:
                     break;
-                case EspHomeMessageType.VoiceAssistantAudioReceived:
-                    break;
-                case EspHomeMessageType.VoiceAssistantAudioStreamEnded:
-                    break;
-                case EspHomeMessageType.VoiceAssistantAnnouncementFinished:
-                    break;
-                case EspHomeMessageType.ConnectionClosed:
-                    return;
-                case EspHomeMessageType.OutgoingMessageRejected:
-                    break;
-                default:
+                case ESPHomeEntityStateType.WaterHeaterState:
                     break;
             }
         }
     }
+
+    private static async Task ListienTOGeneralMessages(ILogger<EspHomeClient> logger, CancellationTokenSource shutdownCancellation, EspHomeClient espHomeClient)
+    {
+        while (!shutdownCancellation.IsCancellationRequested)
+        {
+            var msg = await espHomeClient.GetIncomingMessageAsync(shutdownCancellation.Token).ConfigureAwait(false);
+            logger.LogTrace($"Recieved Message type: {msg}");
+            switch (msg)
+            {
+
+            }
+        }
+    }
+
+
+    /// <summary>Discovers the first matching ESPHome Native API service and creates a client for its endpoint.</summary>
+    private static async Task<IZeroconfHost> DiscoverAsync(string serviceName = "_esphomelib._tcp.local.", string? noisePsk = null, string clientInfo = "EspClient.NET", string? password = null, TimeProvider? timeProvider = null)
+    {
+        while (true)
+        {
+            Console.WriteLine($"Scanning network for services {serviceName}");
+            var response = await ZeroconfResolver.ResolveAsync(serviceName).ConfigureAwait(false);
+            var service = response.FirstOrDefault();
+
+            if (service is null) continue;
+            var serviceInfo = service.Services.FirstOrDefault(x => x.Value.Name == serviceName).Value;
+            if (serviceInfo is null) continue;
+            return service;
+        }
+    }
+
 
 
     private static ILogger<EspHomeClient> CreateLogger(Microsoft.Extensions.Logging.LogLevel logLevel)

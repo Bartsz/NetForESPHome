@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\NetForESPHome.Client\NetForESPHome.Client.csproj" />
+    <ProjectReference Include="..\NetForESPHome.DomainModel\NetForESPHome.DomainModel.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,24 +1,36 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
-  <PropertyGroup> 
+  <PropertyGroup>
     <ProtoDir>$(MSBuildProjectDirectory)\Protos</ProtoDir>
     <EspHomeProtoUrl>https://raw.githubusercontent.com/esphome/esphome/refs/heads/dev/esphome/components/api</EspHomeProtoUrl>
+
+    <!-- ESPHome protoc plugin -->
+    
+    <EspHomeInterfacesPluginDir>$(MSBuildProjectDirectory)\..\NetForESPHome.DomainModel.ProtocPlugin\bin\$(Configuration)\net10.0</EspHomeInterfacesPluginDir>
+
+    <EspHomeInterfacesPluginExe Condition="'$(OS)' == 'Windows_NT'">$(EspHomeInterfacesPluginDir)\NetForESPHome.DomainModel.ProtocPlugin.exe</EspHomeInterfacesPluginExe>
+
+    <EspHomeInterfacesPluginExe Condition="'$(OS)' != 'Windows_NT'">$(EspHomeInterfacesPluginDir)\NetForESPHome.DomainModel.ProtocPlugin</EspHomeInterfacesPluginExe>
+
+    <!-- Output for protoc pluginu -->
+    <EspHomeInterfacesGeneratedDir>$(MSBuildProjectDirectory)\obj\$(Configuration)\$(TargetFramework)\EspHomeInterfaces</EspHomeInterfacesGeneratedDir>
   </PropertyGroup>
 
   <!-- Add xml documentation to be included in build and then be used by IntelliSense -->
   <ItemGroup>
     <None Update="NetForESPHome.DomainModel.xml" Pack="true" PackagePath="lib\$(TargetFramework)\" />
   </ItemGroup>
+ 
   <ItemGroup>
-    <Protobuf Remove="D:\GIT\HomeAssistantRewrite\NidoWeaver\NetForESPHome\NetForESPHome.DomainModel\Protos\api.proto" />
-  </ItemGroup>
 
-  <ItemGroup>
-    <Protobuf Include="$(ProtoDir)\api.proto" ProtoRoot="$(ProtoDir)" GrpcServices="Client" />
-    <Protobuf Remove="D:\GIT\HomeAssistantRewrite\NidoWeaver\NetForESPHome\NetForESPHome.DomainModel\Protos\api_options.proto" />
-
+    <Protobuf Include="$(ProtoDir)\api.proto" ProtoRoot="$(ProtoDir)" GrpcServices="Client"
+               AdditionalProtocArguments="--plugin=protoc-gen-esphome_interfaces=$(EspHomeInterfacesPluginExe);--esphome_interfaces_out=$(EspHomeInterfacesGeneratedDir);" />
+ 
     <Protobuf Include="$(ProtoDir)\api_options.proto" ProtoRoot="$(ProtoDir)" GrpcServices="None" />
+
   </ItemGroup>
+
+
   <!-- Cross-platform task executed by MSBuild -->
   <UsingTask TaskName="PatchEspHomeProtoVoid" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
 
@@ -41,10 +53,26 @@
         // ->
         // returns (VoidMessage)
 
+        const string csharpNamespace = "NetForESPHome.DomainModel.Native";
+
+        static string AddCSharpNamespace(string text, string ns)
+        {
+            // Nie dodawaj ponownie, jeśli plik już zawiera csharp_namespace.
+            if (Regex.IsMatch(text, @"(?m)^[ \t]*option[ \t]+csharp_namespace[ \t]*="))
+                return text;
+
+            return Regex.Replace(text, @"(?m)^([ \t]*syntax[ \t]*=[ \t]*""proto[23]""[ \t]*;[ \t]*)$",
+                $"$1{Environment.NewLine}{Environment.NewLine}option csharp_namespace = \"{ns}\";"
+            );
+        }
+
         if (File.Exists(ApiProto))
         {
             var text = File.ReadAllText(ApiProto);
+
             var patched = Regex.Replace(text, @"\breturns\s*\(\s*void\s*\)", "returns (VoidMessage)");
+
+            patched = AddCSharpNamespace(patched, csharpNamespace);
 
             if (!String.Equals(text, patched, StringComparison.Ordinal))
             {
@@ -53,15 +81,13 @@
             }
         }
 
-        // api_options.proto:
-        // message void {}
-        // ->
-        // message VoidMessage {}
-
         if (File.Exists(ApiOptionsProto))
         {
             var text = File.ReadAllText(ApiOptionsProto);
+
             var patched = Regex.Replace(text, @"(?m)^(\s*)message\s+void\b", "$1message VoidMessage");
+
+            patched = AddCSharpNamespace(patched, csharpNamespace);
 
             if (!String.Equals(text, patched, StringComparison.Ordinal))
             {
@@ -93,6 +119,28 @@
   </Target>
 
 
+  <!-- Prepare output directory for our custom protoc plugin. -->
+  <Target Name="PrepareEspHomeInterfacesPlugin" BeforeTargets="_Protobuf_CoreCompile">
+    <Message Importance="high" Text="Preparing ESPHome protoc plugin output: $(EspHomeInterfacesGeneratedDir)" />
+
+    <MakeDir Directories="$(EspHomeInterfacesGeneratedDir)" />
+
+    <Error Condition="!Exists('$(EspHomeInterfacesPluginExe)')" Text="ESPHome protoc plugin was not found: $(EspHomeInterfacesPluginExe)" />
+  </Target>
+
+  <!--  Inform Grpc.Tools that api.proto produces one additional C# file.
+        This is important for:
+          - adding the generated file to C# compilation,
+          - correct incremental builds. -->
+  <Target Name="AddEspHomeInterfacesExpectedOutput" AfterTargets="Protobuf_PrepareCompile">
+    <ItemGroup>
+      <Protobuf_ExpectedOutputs Include="$(EspHomeInterfacesGeneratedDir)\api.EspHomeMessageMetadata.g.cs">
+        <Source>$(ProtoDir)\api.proto</Source>
+      </Protobuf_ExpectedOutputs>
+    </ItemGroup>
+  </Target>
+
+
   <ItemGroup>
     <!-- Required for Protobuf serialization -->
     <PackageReference Include="Google.Protobuf" />
@@ -100,14 +148,16 @@
     <PackageReference Include="Grpc.Net.Client" />
     <!-- This package provides the build-time C# code generation from .proto files. -->
     <PackageReference Include="Grpc.Tools" IncludeAssets="runtime; build; native; contentfiles; analyzers; buildtransitive" PrivateAssets="all" />
-  </ItemGroup>
-
-  <ItemGroup>
+ 
     <PackageReference Update="Meziantou.Analyzer" />
   </ItemGroup>
 
   <ItemGroup>
     <Folder Include="Protos\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NetForESPHome.DomainModel.ProtocPlugin\NetForESPHome.DomainModel.ProtocPlugin.csproj" ReferenceOutputAssembly="false"  />
   </ItemGroup>
 
 </Project>

@@ -1,4 +1,4 @@
-﻿using Google.Protobuf;
+﻿using NetForESPHome.DomainModel.Native;
 using NetForESPHome.Transports;
 using System.Net.Sockets;
 
@@ -16,11 +16,12 @@ public sealed class ESPHomeClientConnectionMethodDetector : IDisposable
     private readonly string _address;
     private readonly int _port;
     private readonly string _clientInfo;
+    private readonly TimeProvider _timeProvider;
     private bool _disposed;
 
     /// <summary>Creates a one-shot detector that takes ownership of the provided TCP client.
-    /// It is used to detect the required connection method in explicit way, rather then trough implicit error handling. </summary>
-    public ESPHomeClientConnectionMethodDetector(TcpClient tcpClient, string address, int port, string clientInfo = "NetForESPHome")
+    /// It detects the required connection method explicitly rather than relying on implicit error handling.</summary>
+    public ESPHomeClientConnectionMethodDetector(TcpClient tcpClient, string address, int port, string clientInfo = "NetForESPHome", TimeProvider? timeProvider = null)
     {
         ArgumentNullException.ThrowIfNull(tcpClient);
         ArgumentException.ThrowIfNullOrWhiteSpace(address);
@@ -33,6 +34,7 @@ public sealed class ESPHomeClientConnectionMethodDetector : IDisposable
         _address = address;
         _port = port;
         _clientInfo = clientInfo;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     /// <summary>Connects to the ESPHome server, detects the required connection method, and always closes the probe connection afterwards.</summary>
@@ -45,7 +47,7 @@ public sealed class ESPHomeClientConnectionMethodDetector : IDisposable
             await ConnectAsync().ConfigureAwait(false);
             _tcpClient.NoDelay = true;
 
-            using var probeCts = new CancellationTokenSource(ProbeTimeout);
+            using var probeCts = new CancellationTokenSource(ProbeTimeout, _timeProvider);
 
             try
             {
@@ -65,7 +67,7 @@ public sealed class ESPHomeClientConnectionMethodDetector : IDisposable
     /// <summary>Connects the TCP client while bounding endpoint resolution and connection establishment time.</summary>
     private async Task ConnectAsync()
     {
-        using var connectCts = new CancellationTokenSource(ConnectTimeout);
+        using var connectCts = new CancellationTokenSource(ConnectTimeout, _timeProvider);
 
         try
         {
@@ -118,7 +120,7 @@ public sealed class ESPHomeClientConnectionMethodDetector : IDisposable
 
     /// <summary>Reads messages until the requested ESPHome response type is received.</summary>
     private static async ValueTask<TMessage> ReadExpectedMessageAsync<TMessage>(IMessageTransport transport, CancellationToken ct)
-        where TMessage : class, IMessage
+        where TMessage : class, IESPHomeMessage
     {
         while (true)
         {

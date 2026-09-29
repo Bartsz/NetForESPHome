@@ -1,5 +1,6 @@
 ﻿using BenchmarkDotNet.Order;
 using Google.Protobuf;
+using NetForESPHome.DomainModel.Native;
 
 namespace NetForESPHome.Server.Benchmarks.Benchmarks;
 

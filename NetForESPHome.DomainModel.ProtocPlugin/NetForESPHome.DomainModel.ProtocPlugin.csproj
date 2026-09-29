@@ -1,0 +1,17 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType> 
+    <UseAppHost>true</UseAppHost>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Google.Protobuf"  />
+    <PackageReference Include="Grpc.Tools"  PrivateAssets="all" IncludeAssets="runtime; build; native; contentfiles; analyzers; buildtransitive"/>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Protobuf Include="Protos/protoc_plugin.proto" GrpcServices="None" />
+  </ItemGroup>
+
+</Project>

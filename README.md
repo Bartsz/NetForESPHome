@@ -4,7 +4,10 @@
 
 `NetForESPHome` is an independent .NET implementation of selected parts of the **ESPHome Native API** ecosystem.
 
-The repository focuses on protocol compatibility with ESPHome while using .NET-native APIs and runtime primitives rather than reproducing another client implementation one-to-one.
+The project focuses on 
+- protocol compatibility with ESPHome while 
+- providing strongly typed API
+- minimizing allocations (zero-allocation is not possible without giving up on protobuf deserialization into classes)
 
 It currently contains two main projects:
 

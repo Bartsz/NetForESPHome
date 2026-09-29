@@ -1,12 +1,127 @@
-﻿namespace NetForESPHome.Client;
+﻿using NetForESPHome.Client.Model;
+using NetForESPHome.DomainModel.Native;
+using System.Threading.Channels;
+
+namespace NetForESPHome.Client;
 
 public sealed partial class EspHomeClient
 {
+
+    /// <summary>Requests the complete entity and user-service discovery snapshot and returns it after ESPHome terminates the response sequence with ListEntitiesDoneResponse.</summary>
+    public async ValueTask<EspHomeRpcResult<EspHomeEntityDiscovery>> GetEntitiesAndServicesAsync(CancellationToken ct = default)
+    {
+        ThrowIfDisposed();
+        ct.ThrowIfCancellationRequested();
+
+        var session = Volatile.Read(ref _activeSession);
+        if (session is null) return EspHomeRpcResult<EspHomeEntityDiscovery>.ConnectionClosed();
+
+        var assembly = new EntityListAssembly();
+        var existingAssembly = Interlocked.CompareExchange(ref session.CurrentEntityListAssembly, assembly, comparand: null);
+
+        if (existingAssembly is not null) return EspHomeRpcResult<EspHomeEntityDiscovery>.AlreadyInProgress();
+
+        var request = new ListEntitiesRequest();
+        var writeCompletion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var queuedMessage = new QueuedMessage(request, writeCompletion, pendingResponse: null);
+
+        try
+        {
+            await session.OutgoingMessages.Writer.WriteAsync(queuedMessage, ct).ConfigureAwait(false);
+        }
+        catch (ChannelClosedException)
+        {
+            Interlocked.CompareExchange(ref session.CurrentEntityListAssembly, value: null, assembly);
+            return EspHomeRpcResult<EspHomeEntityDiscovery>.ConnectionClosed();
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            Interlocked.CompareExchange(ref session.CurrentEntityListAssembly, value: null, assembly);
+            throw;
+        }
+
+        bool requestWritten;
+
+        try
+        {
+            requestWritten = await writeCompletion.Task.WaitAsync(ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            assembly.Completion.TrySetCanceled(ct);
+            _ = WatchAbandonedEntityListAssemblyAsync(session, assembly);
+            throw;
+        }
+
+        if (!requestWritten)
+        {
+            Interlocked.CompareExchange(ref session.CurrentEntityListAssembly, value: null, assembly);
+            return EspHomeRpcResult<EspHomeEntityDiscovery>.ConnectionClosed();
+        }
+
+        try
+        {
+            return await assembly.Completion.Task.WaitAsync(EntityListResponseTimeout, _timeProvider, ct).ConfigureAwait(false);
+        }
+        catch (TimeoutException) when (!ct.IsCancellationRequested)
+        {
+            var timedOutResult = EspHomeRpcResult<EspHomeEntityDiscovery>.TimedOut();
+
+            if (assembly.Completion.TrySetResult(timedOutResult))
+            {
+                var failure = new TimeoutException($"ESPHome did not finish the entity discovery sequence within {EntityListResponseTimeout}.");
+                session.RequestClose(EspHomeConnectionCloseReason.TransportFailure, failure);
+                return timedOutResult;
+            }
+
+            return await assembly.Completion.Task.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            if (assembly.Completion.TrySetCanceled(ct))
+                _ = WatchAbandonedEntityListAssemblyAsync(session, assembly);
+
+            throw;
+        }
+    }
+
+    /// <summary>Requests current device information and publishes the response through the output stream.</summary>
+    public ValueTask<bool> RequestDeviceInfoRefresh(CancellationToken ct = default)
+    {
+        ThrowIfDisposed();
+
+        var request = new DeviceInfoRequest();
+        return WriteMessageAsync(request, ct);
+    }
+
+    /// <summary>Requests current device capabilities and publishes the response through the output stream.</summary>
+    public ValueTask<bool> RequestDeviceCapabilitiesRefresh(CancellationToken ct = default)
+    {
+        ThrowIfDisposed();
+
+        var request = new DeviceCapabilitiesRequest();
+        return WriteMessageAsync(request, ct);
+    }
+
+    /// <summary>Persists the request for entity state updates and ensures every current or future session subscribes once.</summary>
+    public ValueTask StartStatesSubscriptionAsync(CancellationToken ct = default)
+    {
+        ThrowIfDisposed();
+        ct.ThrowIfCancellationRequested();
+
+        Volatile.Write(ref _statesSubscriptionRequested, 1);
+
+        var session = Volatile.Read(ref _activeSession);
+        return session is null ? ValueTask.CompletedTask : EnsureStatesSubscriptionAsync(session, ct);
+    }
+
+
+
     /// <summary>Sends a partial cover command while leaving every omitted property unchanged.</summary>
     /// <param name="position">Target position from 0.0 (closed) to 1.0 (open); use only when the entity supports positioning.</param>
     /// <param name="tilt">Target tilt from 0.0 to 1.0; use only when the entity supports tilt.</param>
     /// <param name="stop">Requests stopping the current movement when the entity supports stop.</param>
-    public ValueTask SendCoverCommand(uint key, uint deviceId, float? position = null, float? tilt = null, bool stop = false, CancellationToken cancellationToken = default)
+    public ValueTask<bool> SendCoverCommand(uint key, uint deviceId, float? position = null, float? tilt = null, bool stop = false, CancellationToken ct = default)
     {
         var command = new CoverCommandRequest
         {
@@ -19,14 +134,14 @@ public sealed partial class EspHomeClient
             Stop = stop
         };
 
-        return WriteMessageAsync(command, cancellationToken);
+        return WriteMessageAsync(command, ct);
     }
 
     /// <summary>Sends a partial fan command using only current, non-deprecated ESPHome fan controls.</summary>
     /// <param name="speedLevel">Speed level supported by the entity; use the reported supported speed count to determine the valid range.</param>
     /// <param name="direction">Direction requested by the user; use only when the entity reports direction support.</param>
     /// <param name="presetMode">Exact preset name reported by the entity in its supported preset modes.</param>
-    public ValueTask SendFanCommand(uint key, uint deviceId, bool? state = null, int? speedLevel = null, bool? oscillating = null, FanDirection? direction = null, string? presetMode = null, CancellationToken cancellationToken = default)
+    public ValueTask<bool> SendFanCommand(uint key, uint deviceId, bool? state = null, int? speedLevel = null, bool? oscillating = null, FanDirection? direction = null, string? presetMode = null, CancellationToken ct = default)
     {
         var command = new FanCommandRequest
         {
@@ -44,10 +159,10 @@ public sealed partial class EspHomeClient
             PresetMode = presetMode ?? string.Empty
         };
 
-        return WriteMessageAsync(command, cancellationToken);
+        return WriteMessageAsync(command, ct);
     }
 
-    /// <summary>Sends a partial light command and derives protocol-specific RGB brightness while allowing ESPHome to infer the color mode when no explicit mode is requested.</summary>
+    /// <summary>Sends a partial light command without waiting for the state message produced after the command.</summary>
     /// <param name="state">Requested on/off state, or null to leave it unchanged.</param>
     /// <param name="brightness">Master brightness from 0.0 to 1.0, or null to leave it unchanged.</param>
     /// <param name="colorMode">Normally null. Specify only to force one of the color modes reported by the entity when deterministic switching between overlapping modes is required.</param>
@@ -59,17 +174,30 @@ public sealed partial class EspHomeClient
     /// <param name="transition">Transition duration. Null leaves the transition unspecified and allows the device default; zero explicitly requests an immediate transition.</param>
     /// <param name="flash">Flash duration, or null to avoid requesting a flash.</param>
     /// <param name="effect">Exact effect name reported by the entity; use "None" when reported by the entity to stop an active effect.</param>
-    public ValueTask SendLightCommand(uint key, uint deviceId, bool? state = null, float? brightness = null, ColorMode? colorMode = null, 
-        (float Red, float Green, float Blue)? rgb = null, float? white = null, float? colorTemperatureMireds = null, float? coldWhite = null, 
-        float? warmWhite = null, TimeSpan? transition = null, TimeSpan? flash = null, string? effect = null, CancellationToken cancellationToken = default)
+    public ValueTask<bool> SendLightCommand(uint key, uint deviceId, bool? state = null, float? brightness = null, ColorMode? colorMode = null, (float Red, float Green, float Blue)? rgb = null, float? white = null, float? colorTemperatureMireds = null, float? coldWhite = null, float? warmWhite = null, TimeSpan? transition = null, TimeSpan? flash = null, string? effect = null, CancellationToken ct = default)
+    {
+        var command = CreateLightCommandRequest(key, deviceId, state, brightness, colorMode, rgb, white, colorTemperatureMireds, coldWhite, warmWhite, transition, flash, effect);
+        return WriteMessageAsync(command, ct);
+    }
+
+    /// <summary>Sends a light command and observes the next FIFO light state for the same entity as its application-level confirmation without removing it from the public state stream.</summary>
+    /// <param name="responseTimeout">Maximum time to wait after the command has been physically written to the transport.</param>
+    public ValueTask<EspHomeRpcResult<LightStateResponse>> SendLightCommandAndWaitForStateAsync(uint key, uint deviceId, TimeSpan responseTimeout, bool? state = null, float? brightness = null, ColorMode? colorMode = null, (float Red, float Green, float Blue)? rgb = null, float? white = null, float? colorTemperatureMireds = null, float? coldWhite = null, float? warmWhite = null, TimeSpan? transition = null, TimeSpan? flash = null, string? effect = null, CancellationToken ct = default)
+    {
+        var command = CreateLightCommandRequest(key, deviceId, state, brightness, colorMode, rgb, white, colorTemperatureMireds, coldWhite, warmWhite, transition, flash, effect);
+        bool isMatchingMessage(IESPHomeMessage message) => message is LightStateResponse response && response.Key == key && response.DeviceId == deviceId;
+        return WriteMessageAwaitResponseAsync<LightStateResponse>(command, LightStateResponse.ID, isMatchingMessage, publishResponse: true, timeout: responseTimeout, ct: ct);
+    }
+
+    /// <summary>Creates the protocol light command shared by fire-and-forget and state-confirmed send operations.</summary>
+    private static LightCommandRequest CreateLightCommandRequest(uint key, uint deviceId, bool? state, float? brightness, ColorMode? colorMode, (float Red, float Green, float Blue)? rgb, float? white, float? colorTemperatureMireds, float? coldWhite, float? warmWhite, TimeSpan? transition, TimeSpan? flash, string? effect)
     {
         if (transition.HasValue && transition.Value < TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(transition), transition, "Transition cannot be negative.");
         if (flash.HasValue && flash.Value < TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(flash), flash, "Flash duration cannot be negative.");
 
-        var rgbValue = rgb ?? (0f, 0f, 0f);
-        var rgbBrightness = rgb.HasValue ? Math.Max(rgbValue.Red, Math.Max(rgbValue.Green, rgbValue.Blue)) : 0f;
+        var (Red, Green, Blue) = rgb ?? (0f, 0f, 0f);
+        var rgbBrightness = rgb.HasValue ? Math.Max(Red, Math.Max(Green, Blue)) : 0f;
         var rgbNormalizationFactor = rgbBrightness > 0f ? 1f / rgbBrightness : 0f;
-
         var transitionLengthMilliseconds = transition.HasValue ? checked((uint)Math.Round(transition.Value.TotalMilliseconds)) : 0u;
         var flashLengthMilliseconds = flash.HasValue ? checked((uint)Math.Round(flash.Value.TotalMilliseconds)) : 0u;
 
@@ -77,54 +205,51 @@ public sealed partial class EspHomeClient
         {
             Key = key,
             DeviceId = deviceId,
-
             HasState = state.HasValue,
             State = state ?? false,
-
             HasBrightness = brightness.HasValue,
             Brightness = brightness ?? 0,
-
             HasColorMode = colorMode.HasValue,
             ColorMode = colorMode ?? 0,
-
             HasColorBrightness = rgb.HasValue,
             ColorBrightness = rgbBrightness,
-
             HasRgb = rgb.HasValue,
-            Red = rgbValue.Red * rgbNormalizationFactor,
-            Green = rgbValue.Green * rgbNormalizationFactor,
-            Blue = rgbValue.Blue * rgbNormalizationFactor,
-
+            Red = Red * rgbNormalizationFactor,
+            Green = Green * rgbNormalizationFactor,
+            Blue = Blue * rgbNormalizationFactor,
             HasWhite = white.HasValue,
             White = white ?? 0,
-
             HasColorTemperature = colorTemperatureMireds.HasValue,
             ColorTemperature = colorTemperatureMireds ?? 0,
-
             HasColdWhite = coldWhite.HasValue,
             ColdWhite = coldWhite ?? 0,
-
             HasWarmWhite = warmWhite.HasValue,
             WarmWhite = warmWhite ?? 0,
-
             HasTransitionLength = transition.HasValue,
             TransitionLength = transitionLengthMilliseconds,
-
             HasFlashLength = flash.HasValue,
             FlashLength = flashLengthMilliseconds,
-
             HasEffect = effect is not null,
             Effect = effect ?? string.Empty
         };
 
-        return WriteMessageAsync(command, cancellationToken);
+        return command;
     }
 
-    /// <summary>Sets the requested switch state.</summary>
-    public ValueTask SendSwitchCommand(uint key, uint deviceId, bool state, CancellationToken cancellationToken = default)
+    /// <summary>Sets the requested switch state without waiting for its subsequent state publication.</summary>
+    public ValueTask<bool> SendSwitchCommand(uint key, uint deviceId, bool state, CancellationToken ct = default)
     {
         var command = new SwitchCommandRequest { Key = key, DeviceId = deviceId, State = state };
-        return WriteMessageAsync(command, cancellationToken);
+        return WriteMessageAsync(command, ct);
+    }
+
+    /// <summary>Sends a switch command and observes the next FIFO state for the same entity that confirms the requested value without removing it from the public state stream.</summary>
+    /// <param name="responseTimeout">Maximum time to wait after the command has been physically written to the transport.</param>
+    public ValueTask<EspHomeRpcResult<SwitchStateResponse>> SendSwitchCommandAndWaitForStateAsync(uint key, uint deviceId, bool state, TimeSpan responseTimeout, CancellationToken ct = default)
+    {
+        var command = new SwitchCommandRequest { Key = key, DeviceId = deviceId, State = state };
+        bool isMatchingMessage(IESPHomeMessage message) => message is SwitchStateResponse response && response.Key == key && response.DeviceId == deviceId && response.State == state;
+        return WriteMessageAwaitResponseAsync<SwitchStateResponse>(command, SwitchStateResponse.ID, isMatchingMessage, publishResponse: true, timeout: responseTimeout, ct: ct);
     }
 
     /// <summary>Sends a partial climate command while preserving every omitted setting.</summary>
@@ -138,13 +263,13 @@ public sealed partial class EspHomeClient
     /// <param name="preset">Standard preset selected from the entity's supported presets; cannot be combined with customPreset.</param>
     /// <param name="customPreset">Exact custom preset reported by the entity; cannot be combined with preset.</param>
     /// <param name="targetHumidity">Target relative humidity supported by the entity.</param>
-    public ValueTask SendClimateCommand(uint key, uint deviceId, ClimateMode? mode = null, float? targetTemperature = null, float? targetTemperatureLow = null, float? targetTemperatureHigh = null, ClimateFanMode? fanMode = null, ClimateSwingMode? swingMode = null, string? customFanMode = null, ClimatePreset? preset = null, string? customPreset = null, float? targetHumidity = null, CancellationToken cancellationToken = default)
+    public ValueTask<bool> SendClimateCommand(uint key, uint deviceId, ClimateMode? mode = null, float? targetTemperature = null, float? targetTemperatureLow = null, float? targetTemperatureHigh = null, ClimateFanMode? fanMode = null, ClimateSwingMode? swingMode = null, string? customFanMode = null, ClimatePreset? preset = null, string? customPreset = null, float? targetHumidity = null, CancellationToken ct = default)
     {
         var hasConflictingFanModes = fanMode.HasValue && customFanMode is not null;
-        if (hasConflictingFanModes) throw new ArgumentException("Standard and custom fan modes cannot be sent in the same command.");
+        if (hasConflictingFanModes) throw new InvalidOperationException("Standard and custom fan modes cannot be sent in the same command.");
 
         var hasConflictingPresets = preset.HasValue && customPreset is not null;
-        if (hasConflictingPresets) throw new ArgumentException("Standard and custom presets cannot be sent in the same command.");
+        if (hasConflictingPresets) throw new InvalidOperationException("Standard and custom presets cannot be sent in the same command.");
 
         var command = new ClimateCommandRequest
         {
@@ -182,19 +307,19 @@ public sealed partial class EspHomeClient
             TargetHumidity = targetHumidity ?? 0
         };
 
-        return WriteMessageAsync(command, cancellationToken);
+        return WriteMessageAsync(command, ct);
     }
 
     /// <summary>Sets a number entity to the requested value.</summary>
     /// <param name="value">Value within the min, max and step constraints reported by the entity.</param>
-    public ValueTask SendNumberCommand(uint key, uint deviceId, float value, CancellationToken cancellationToken = default)
+    public ValueTask<bool> SendNumberCommand(uint key, uint deviceId, float value, CancellationToken ct = default)
     {
         var command = new NumberCommandRequest { Key = key, DeviceId = deviceId, State = value };
-        return WriteMessageAsync(command, cancellationToken);
+        return WriteMessageAsync(command, ct);
     }
 
     /// <summary>Sets a date entity using the platform date type instead of exposing protocol date fields.</summary>
-    public ValueTask SendDateCommand(uint key, uint deviceId, DateOnly date, CancellationToken cancellationToken = default)
+    public ValueTask<bool> SendDateCommand(uint key, uint deviceId, DateOnly date, CancellationToken ct = default)
     {
         var command = new DateCommandRequest
         {
@@ -205,11 +330,11 @@ public sealed partial class EspHomeClient
             Day = (uint)date.Day
         };
 
-        return WriteMessageAsync(command, cancellationToken);
+        return WriteMessageAsync(command, ct);
     }
 
     /// <summary>Sets a time entity using the platform time type; sub-second precision is discarded because ESPHome transmits whole seconds.</summary>
-    public ValueTask SendTimeCommand(uint key, uint deviceId, TimeOnly time, CancellationToken cancellationToken = default)
+    public ValueTask<bool> SendTimeCommand(uint key, uint deviceId, TimeOnly time, CancellationToken ct = default)
     {
         var command = new TimeCommandRequest
         {
@@ -220,36 +345,36 @@ public sealed partial class EspHomeClient
             Second = (uint)time.Second
         };
 
-        return WriteMessageAsync(command, cancellationToken);
+        return WriteMessageAsync(command, ct);
     }
 
     /// <summary>Sets a datetime entity and converts the supplied instant to the unsigned Unix timestamp used by ESPHome.</summary>
     /// <param name="dateTime">Instant representable by the protocol's unsigned 32-bit Unix timestamp.</param>
-    public ValueTask SendDateTimeCommand(uint key, uint deviceId, DateTimeOffset dateTime, CancellationToken cancellationToken = default)
+    public ValueTask<bool> SendDateTimeCommand(uint key, uint deviceId, DateTimeOffset dateTime, CancellationToken ct = default)
     {
         var unixTimeSeconds = dateTime.ToUnixTimeSeconds();
         var isOutsideProtocolRange = unixTimeSeconds is < 0 or > uint.MaxValue;
         if (isOutsideProtocolRange) throw new ArgumentOutOfRangeException(nameof(dateTime), dateTime, "ESPHome datetime must fit into an unsigned 32-bit Unix timestamp.");
 
         var command = new DateTimeCommandRequest { Key = key, DeviceId = deviceId, EpochSeconds = (uint)unixTimeSeconds };
-        return WriteMessageAsync(command, cancellationToken);
+        return WriteMessageAsync(command, ct);
     }
 
     /// <summary>Selects one of the options advertised by a select entity.</summary>
     /// <param name="option">Exact option string reported by the entity.</param>
-    public ValueTask SendSelectCommand(uint key, uint deviceId, string option, CancellationToken cancellationToken = default)
+    public ValueTask<bool> SendSelectTextCommand(uint key, uint deviceId, string option, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(option);
 
         var command = new SelectCommandRequest { Key = key, DeviceId = deviceId, State = option };
-        return WriteMessageAsync(command, cancellationToken);
+        return WriteMessageAsync(command, ct);
     }
 
     /// <summary>Sends a partial siren command while preserving omitted siren settings.</summary>
     /// <param name="tone">Exact tone name reported by the entity.</param>
     /// <param name="volume">Volume from 0.0 to 1.0 when volume control is supported.</param>
     /// <param name="duration">Requested duration; ESPHome represents this field as a whole number of seconds.</param>
-    public ValueTask SendSirenCommand(uint key, uint deviceId, bool? state = null, string? tone = null, float? volume = null, TimeSpan? duration = null, CancellationToken cancellationToken = default)
+    public ValueTask<bool> SendSirenCommand(uint key, uint deviceId, bool? state = null, string? tone = null, float? volume = null, TimeSpan? duration = null, CancellationToken ct = default)
     {
         if (duration.HasValue && duration.Value < TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(duration), duration, "Duration cannot be negative.");
 
@@ -269,28 +394,28 @@ public sealed partial class EspHomeClient
             Duration = durationSeconds
         };
 
-        return WriteMessageAsync(command, cancellationToken);
+        return WriteMessageAsync(command, ct);
     }
 
     /// <summary>Presses the stateless button represented by the specified entity key.</summary>
-    public ValueTask SendButtonCommand(uint key, uint deviceId, CancellationToken cancellationToken = default)
+    public ValueTask<bool> SendButtonCommand(uint key, uint deviceId, CancellationToken ct = default)
     {
         var command = new ButtonCommandRequest { Key = key, DeviceId = deviceId };
-        return WriteMessageAsync(command, cancellationToken);
+        return WriteMessageAsync(command, ct);
     }
 
     /// <summary>Sends the requested lock action; protocol code fields are intentionally omitted until ESPHome implements them.</summary>
     /// <param name="command">Unlock, Lock, or Open; Open must only be used when the entity reports open support.</param>
-    public ValueTask SendLockCommand(uint key, uint deviceId, LockCommand command, CancellationToken cancellationToken = default)
+    public ValueTask<bool> SendLockCommand(uint key, uint deviceId, LockCommand command, CancellationToken ct = default)
     {
         var request = new LockCommandRequest { Key = key, DeviceId = deviceId, Command = command };
-        return WriteMessageAsync(request, cancellationToken);
+        return WriteMessageAsync(request, ct);
     }
 
     /// <summary>Sends a partial valve command while leaving an omitted position unchanged.</summary>
     /// <param name="position">Target position from 0.0 to 1.0 when position control is supported.</param>
     /// <param name="stop">Requests stopping the current movement when stop is supported.</param>
-    public ValueTask SendValveCommand(uint key, uint deviceId, float? position = null, bool stop = false, CancellationToken cancellationToken = default)
+    public ValueTask<bool> SendValveCommand(uint key, uint deviceId, float? position = null, bool stop = false, CancellationToken ct = default)
     {
         var command = new ValveCommandRequest
         {
@@ -301,7 +426,7 @@ public sealed partial class EspHomeClient
             Stop = stop
         };
 
-        return WriteMessageAsync(command, cancellationToken);
+        return WriteMessageAsync(command, ct);
     }
 
     /// <summary>Sends a partial water-heater command and derives the protocol presence and state bitmasks from the supplied nullable values.</summary>
@@ -311,7 +436,7 @@ public sealed partial class EspHomeClient
     /// <param name="targetTemperatureHigh">Upper target for an entity supporting a two-point temperature range.</param>
     /// <param name="away">Explicitly enables or disables away state; null leaves it unchanged.</param>
     /// <param name="on">Explicitly enables or disables on state; null leaves it unchanged.</param>
-    public ValueTask SendWaterHeaterCommand(uint key, uint deviceId, WaterHeaterMode? mode = null, float? targetTemperature = null, float? targetTemperatureLow = null, float? targetTemperatureHigh = null, bool? away = null, bool? on = null, CancellationToken cancellationToken = default)
+    public ValueTask<bool> SendWaterHeaterCommand(uint key, uint deviceId, WaterHeaterMode? mode = null, float? targetTemperature = null, float? targetTemperatureLow = null, float? targetTemperatureHigh = null, bool? away = null, bool? on = null, CancellationToken ct = default)
     {
         const uint ModeField = 1u << 0;
         const uint TargetTemperatureField = 1u << 1;
@@ -347,7 +472,7 @@ public sealed partial class EspHomeClient
             State = state
         };
 
-        return WriteMessageAsync(command, cancellationToken);
+        return WriteMessageAsync(command, ct);
     }
 
     /// <summary>Sends any supported combination of media-player transport, volume and media playback settings.</summary>
@@ -355,7 +480,7 @@ public sealed partial class EspHomeClient
     /// <param name="volume">Absolute volume from 0.0 to 1.0.</param>
     /// <param name="mediaUrl">Media URL understood by the target media player.</param>
     /// <param name="announcement">Marks media playback as an announcement when the entity supports announcements.</param>
-    public ValueTask SendMediaPlayerCommand(uint key, uint deviceId, MediaPlayerCommand? command = null, float? volume = null, string? mediaUrl = null, bool? announcement = null, CancellationToken cancellationToken = default)
+    public ValueTask<bool> SendMediaPlayerCommand(uint key, uint deviceId, MediaPlayerCommand? command = null, float? volume = null, string? mediaUrl = null, bool? announcement = null, CancellationToken ct = default)
     {
         var request = new MediaPlayerCommandRequest
         {
@@ -371,34 +496,34 @@ public sealed partial class EspHomeClient
             Announcement = announcement ?? false
         };
 
-        return WriteMessageAsync(request, cancellationToken);
+        return WriteMessageAsync(request, ct);
     }
 
     /// <summary>Sets a text entity after leaving validation of its advertised length and pattern constraints to the caller.</summary>
     /// <param name="value">Text satisfying the min length, max length and pattern reported by the entity.</param>
-    public ValueTask SendTextCommand(uint key, uint deviceId, string value, CancellationToken cancellationToken = default)
+    public ValueTask<bool> SendTextCommand(uint key, uint deviceId, string value, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(value);
 
         var command = new TextCommandRequest { Key = key, DeviceId = deviceId, State = value };
-        return WriteMessageAsync(command, cancellationToken);
+        return WriteMessageAsync(command, ct);
     }
 
     /// <summary>Requests checking for or installing an update and rejects the protocol's non-action None value.</summary>
     /// <param name="command">Use Update to install the available update or Check to refresh update information; None is not a valid action.</param>
-    public ValueTask SendUpdateCommand(uint key, uint deviceId, UpdateCommand command, CancellationToken cancellationToken = default)
+    public ValueTask<bool> SendUpdateCommand(uint key, uint deviceId, UpdateCommand command, CancellationToken ct = default)
     {
         var isActionCommand = (int)command != 0 && Enum.IsDefined(command);
         if (!isActionCommand) throw new ArgumentOutOfRangeException(nameof(command), command, "Update command must represent an actionable ESPHome update operation.");
 
         var request = new UpdateCommandRequest { Key = key, DeviceId = deviceId, Command = command };
-        return WriteMessageAsync(request, cancellationToken);
+        return WriteMessageAsync(request, ct);
     }
 
     /// <summary>Sends an alarm-panel action together with the optional code required by the target panel.</summary>
     /// <param name="command">Disarm, one of the supported arm modes, or Trigger; arm modes must be supported by the entity.</param>
     /// <param name="code">Code required according to the entity's RequiresCode and RequiresCodeToArm properties, or null when no code is required.</param>
-    public ValueTask SendAlarmControlPanelCommand(uint key, uint deviceId, AlarmControlPanelStateCommand command, string? code = null, CancellationToken cancellationToken = default)
+    public ValueTask<bool> SendAlarmControlPanelCommand(uint key, uint deviceId, AlarmControlPanelStateCommand command, string? code = null, CancellationToken ct = default)
     {
         var request = new AlarmControlPanelCommandRequest
         {
@@ -408,6 +533,6 @@ public sealed partial class EspHomeClient
             Code = code ?? string.Empty
         };
 
-        return WriteMessageAsync(request, cancellationToken);
+        return WriteMessageAsync(request, ct);
     }
 }

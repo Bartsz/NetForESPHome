@@ -1,6 +1,5 @@
-﻿using Google.Protobuf;
-using Microsoft.Extensions.Logging;
-using NetForESPHome.DomainModel;
+﻿using Microsoft.Extensions.Logging;
+using NetForESPHome.DomainModel.Native;
 using NetForESPHome.Transports;
 using System.Net;
 using System.Net.Sockets;
@@ -135,7 +134,7 @@ public sealed partial class EspHomeMockServer : IAsyncDisposable
     }
 
     /// <summary>Returns a cloned retained state snapshot for one configured entity, or null when that entity intentionally retains no state.</summary>
-    public IMessage? GetEntityState(uint key, uint deviceId = 0)
+    public IESPHomeMessage? GetEntityState(uint key, uint deviceId = 0)
     {
         ThrowIfDisposed();
 
@@ -146,7 +145,7 @@ public sealed partial class EspHomeMockServer : IAsyncDisposable
     }
 
     /// <summary>Returns a typed retained state snapshot for one configured entity and verifies its protobuf state type.</summary>
-    public TState? GetEntityState<TState>(uint key, uint deviceId = 0) where TState : class, IMessage<TState>
+    public TState? GetEntityState<TState>(uint key, uint deviceId = 0) where TState : class, IESPHomeStateMessage
     {
         var state = GetEntityState(key, deviceId);
         if (state is null) return null;
@@ -156,12 +155,12 @@ public sealed partial class EspHomeMockServer : IAsyncDisposable
     }
 
     /// <summary>Replaces one configured entity state and optionally publishes the new snapshot to the currently subscribed client.</summary>
-    public async ValueTask SetEntityStateAsync(IMessage state, bool publish = true, CancellationToken cancellationToken = default)
+    public async ValueTask SetEntityStateAsync(IESPHomeMessage state, bool publish = true, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(state);
 
-        if (!EspHomeMessageMapper.IsEntityStateResponseMessage(state)) throw new ArgumentException($"Message type {state.GetType().Name} is not an ESPHome entity state response.", nameof(state));
+        if (state is not IESPHomeStateMessage) throw new ArgumentException($"Message type {state.GetType().Name} is not an ESPHome entity state response.", nameof(state));
 
         var address = EntityAddress.FromMessage(state);
         if (!_entities.TryGetValue(address, out var entity)) throw new KeyNotFoundException($"ESPHome entity {address} is not configured.");
@@ -178,7 +177,7 @@ public sealed partial class EspHomeMockServer : IAsyncDisposable
     }
 
     /// <summary>Publishes an arbitrary ESPHome protocol message to the active client through the serialized write loop.</summary>
-    public ValueTask PublishMessageAsync(IMessage message, CancellationToken cancellationToken = default)
+    public ValueTask PublishMessageAsync(IESPHomeMessage message, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(message);
@@ -348,7 +347,7 @@ public sealed partial class EspHomeMockServer : IAsyncDisposable
     }
 
     /// <summary>Routes core Native API requests, subscriptions and entity commands while ignoring optional protocol features not configured by the mock.</summary>
-    private async Task<bool> HandleMessageAsync(IMessage message, ChannelWriter<QueuedServerMessage> writer, List<Task> producerTasks, CancellationTokenSource sessionCancellation, CancellationToken cancellationToken)
+    private async Task<bool> HandleMessageAsync(IESPHomeMessage message, ChannelWriter<QueuedServerMessage> writer, List<Task> producerTasks, CancellationTokenSource sessionCancellation, CancellationToken cancellationToken)
     {
         _logger?.LogTrace("Server received: {Message}", message);
 
@@ -435,9 +434,9 @@ public sealed partial class EspHomeMockServer : IAsyncDisposable
         }
 
 
-        if (!IsEntityCommandMessage(message)) return false;
+        if (message is not IESPHomeCommandMessage commandMessage) return false;
 
-        await HandleEntityCommandAsync(message, writer, cancellationToken).ConfigureAwait(false);
+        await HandleEntityCommandAsync(commandMessage, writer, cancellationToken).ConfigureAwait(false);
         return false;
     }
 
@@ -575,7 +574,7 @@ public sealed partial class EspHomeMockServer : IAsyncDisposable
     public static partial Regex KeyRegex();
 
     /// <summary>Applies a command to matching retained state, publishes the resulting state and then invokes the optional command callback.</summary>
-    private async Task HandleEntityCommandAsync(IMessage command, ChannelWriter<QueuedServerMessage> writer, CancellationToken cancellationToken)
+    private async Task HandleEntityCommandAsync(IESPHomeCommandMessage command, ChannelWriter<QueuedServerMessage> writer, CancellationToken cancellationToken)
     {
         var address = EntityAddress.FromMessage(command);
 
@@ -592,17 +591,7 @@ public sealed partial class EspHomeMockServer : IAsyncDisposable
         var callback = _configuration.CommandReceived;
         if (callback is not null) await callback(command, cancellationToken).ConfigureAwait(false);
     }
-
-    /// <summary>Determines whether protobuf metadata marks the message as an ESPHome entity command.</summary>
-    private static bool IsEntityCommandMessage(IMessage message)
-    {
-        var options = message.Descriptor.GetOptions();
-        if (options is null) return false;
-
-        var baseClass = options.GetExtension(ApiOptionsExtensions.BaseClass);
-        return baseClass == "CommandProtoMessage";
-    }
-
+ 
     /// <summary>Creates the bounded multi-producer queue that guarantees the underlying transport receives only one write at a time.</summary>
     private static Channel<QueuedServerMessage> CreateWriteChannel()
     {
@@ -626,8 +615,14 @@ public sealed partial class EspHomeMockServer : IAsyncDisposable
 
         if (_logger?.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Debug) == true)
         {
-            var timer = new Timer((_) => _logger.LogDebug("Server sent messages: {MsgRate} msg/s", count/1000), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+            var timer = new Timer((_) =>
+            {
+                var currentCount = Interlocked.Exchange(ref count, 0);
+                _logger.LogDebug("Server sent messages: {MsgRate} msg/s", currentCount);
+                
+            }, null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
         }
+
 
         try
         {
@@ -675,14 +670,14 @@ public sealed partial class EspHomeMockServer : IAsyncDisposable
     }
 
     /// <summary>Queues one protocol message without waiting for the physical network write.</summary>
-    private static ValueTask QueueMessageAsync(ChannelWriter<QueuedServerMessage> writer, IMessage message, CancellationToken cancellationToken)
+    private static ValueTask QueueMessageAsync(ChannelWriter<QueuedServerMessage> writer, IESPHomeMessage message, CancellationToken cancellationToken)
     {
         var queuedMessage = new QueuedServerMessage(message, null);
         return writer.WriteAsync(queuedMessage, cancellationToken);
     }
 
     /// <summary>Queues one protocol message and waits until the serialized writer physically writes it to the active transport.</summary>
-    private static async ValueTask WriteMessageAndWaitAsync(ChannelWriter<QueuedServerMessage> writer, IMessage message, CancellationToken cancellationToken)
+    private static async ValueTask WriteMessageAndWaitAsync(ChannelWriter<QueuedServerMessage> writer, IESPHomeMessage message, CancellationToken cancellationToken)
     {
         var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var queuedMessage = new QueuedServerMessage(message, completion);
@@ -777,13 +772,13 @@ public sealed partial class EspHomeMockServer : IAsyncDisposable
     private readonly struct QueuedServerMessage
     {
         /// <summary>Gets the protobuf message queued for transport serialization.</summary>
-        public IMessage Message { get; }
+        public IESPHomeMessage Message { get; }
 
         /// <summary>Gets the optional signal completed after the physical transport write finishes.</summary>
         public TaskCompletionSource<bool>? Completion { get; }
 
         /// <summary>Creates one queued write without copying its protobuf payload.</summary>
-        public QueuedServerMessage(IMessage message, TaskCompletionSource<bool>? completion)
+        public QueuedServerMessage(IESPHomeMessage message, TaskCompletionSource<bool>? completion)
         {
             Message = message;
             Completion = completion;

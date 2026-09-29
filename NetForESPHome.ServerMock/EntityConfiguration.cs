@@ -1,5 +1,5 @@
 ﻿using Google.Protobuf;
-using NetForESPHome.DomainModel;
+using NetForESPHome.DomainModel.Native;
 
 namespace NetForESPHome.ServerMock;
 
@@ -7,7 +7,7 @@ namespace NetForESPHome.ServerMock;
 public abstract class EspHomeEntityConfiguration
 {
     /// <summary>Gets the entity description returned during a ListEntities exchange.</summary>
-    public abstract IMessage EntityInfo { get; }
+    public abstract IESPHomeMessage EntityInfo { get; }
 
     /// <summary>Gets the entity key used by ESPHome protocol messages.</summary>
     public uint Key => EntityAddress.FromMessage(EntityInfo).Key;
@@ -16,17 +16,17 @@ public abstract class EspHomeEntityConfiguration
     public uint DeviceId => EntityAddress.FromMessage(EntityInfo).DeviceId;
 
     /// <summary>Gets a snapshot of the retained entity state, or null when retaining state is not meaningful for the entity.</summary>
-    public abstract IMessage? GetState();
+    public abstract IESPHomeMessage? GetState();
 
     /// <summary>Replaces the retained entity state when the supplied message belongs to this entity.</summary>
-    internal abstract bool TrySetState(IMessage state);
+    internal abstract bool TrySetState(IESPHomeMessage state);
 
     /// <summary>Applies one entity command and returns the resulting retained state when the command changes state.</summary>
-    internal abstract bool TryApplyCommand(IMessage command, out IMessage? state);
+    internal abstract bool TryApplyCommand(IESPHomeMessage command, out IESPHomeMessage? state);
 }
 
 /// <summary>Describes an ESPHome entity that has no retained state, such as a button.</summary>
-public sealed class EspHomeEntityConfiguration<TInfo> : EspHomeEntityConfiguration where TInfo : class, IMessage<TInfo>
+public sealed class EspHomeEntityConfiguration<TInfo> : EspHomeEntityConfiguration where TInfo : class, IESPHomeEntityInfoMessage
 {
     private readonly TInfo _entityInfo;
 
@@ -34,26 +34,26 @@ public sealed class EspHomeEntityConfiguration<TInfo> : EspHomeEntityConfigurati
     public TInfo Info => _entityInfo;
 
     /// <summary>Gets the entity description returned during a ListEntities exchange.</summary>
-    public override IMessage EntityInfo => _entityInfo;
+    public override IESPHomeMessage EntityInfo => _entityInfo;
 
     /// <summary>Creates an entity configuration that only publishes entity metadata and forwards commands to the server callback.</summary>
     public EspHomeEntityConfiguration(TInfo entityInfo)
     {
         ArgumentNullException.ThrowIfNull(entityInfo);
-        if (!EspHomeMessageMapper.IsEntityInfoResponseMessage(entityInfo)) throw new ArgumentException($"Message type {entityInfo.GetType().Name} is not an ESPHome entity info response.", nameof(entityInfo));
+        if (entityInfo is not IESPHomeEntityInfoMessage) throw new ArgumentException($"Message type {entityInfo.GetType().Name} is not an ESPHome entity info response.", nameof(entityInfo));
 
         _ = EntityAddress.FromMessage(entityInfo);
         _entityInfo = entityInfo;
     }
 
     /// <summary>Returns null because this entity configuration intentionally does not retain state.</summary>
-    public override IMessage? GetState() => null;
+    public override IESPHomeMessage? GetState() => null;
 
     /// <summary>Rejects state replacement because this entity configuration does not retain state.</summary>
-    internal override bool TrySetState(IMessage state) => false;
+    internal override bool TrySetState(IESPHomeMessage state) => false;
 
     /// <summary>Leaves commands unchanged because this entity configuration has no retained state to update.</summary>
-    internal override bool TryApplyCommand(IMessage command, out IMessage? state)
+    internal override bool TryApplyCommand(IESPHomeMessage command, out IESPHomeMessage? state)
     {
         state = null;
         return false;
@@ -61,13 +61,13 @@ public sealed class EspHomeEntityConfiguration<TInfo> : EspHomeEntityConfigurati
 }
 
 /// <summary>Describes an ESPHome entity with typed retained state and an optional scheduled state generator.</summary>
-public sealed class EspHomeEntityConfiguration<TInfo, TState> : EspHomeEntityConfiguration, IMessageProducer where TInfo : class, IMessage<TInfo> where TState : class, IMessage<TState>, IDeepCloneable<TState>
+public sealed class EspHomeEntityConfiguration<TInfo, TState> : EspHomeEntityConfiguration, IMessageProducer where TInfo : class, IESPHomeEntityInfoMessage where TState : class, IESPHomeStateMessage, IDeepCloneable<TState>
 {
     private readonly Lock _stateLock = new();
     private readonly TInfo _entityInfo;
     private readonly Func<TState>? _generateMessage;
     private readonly Func<TimeSpan>? _generateDelay;
-    private readonly Func<TState, IMessage, TState?>? _applyCommand;
+    private readonly Func<TState, IESPHomeMessage, TState?>? _applyCommand;
     private readonly bool _retainState;
 
     private TState _state;
@@ -76,16 +76,16 @@ public sealed class EspHomeEntityConfiguration<TInfo, TState> : EspHomeEntityCon
     public TInfo Info => _entityInfo;
 
     /// <summary>Gets the entity description returned during a ListEntities exchange.</summary>
-    public override IMessage EntityInfo => _entityInfo;
+    public override IESPHomeMessage EntityInfo => _entityInfo;
 
     /// <summary>Creates a stateful entity configuration with optional periodic generation and command-specific state mutation.</summary>
-    public EspHomeEntityConfiguration(TInfo entityInfo, TState initialState, Func<TState>? generateMessage = null, Func<TimeSpan>? generateDelay = null, Func<TState, IMessage, TState?>? applyCommand = null, bool? retainState = null)
+    public EspHomeEntityConfiguration(TInfo entityInfo, TState initialState, Func<TState>? generateMessage = null, Func<TimeSpan>? generateDelay = null, Func<TState, IESPHomeMessage, TState?>? applyCommand = null, bool? retainState = null)
     {
         ArgumentNullException.ThrowIfNull(entityInfo);
         ArgumentNullException.ThrowIfNull(initialState);
 
-        if (!EspHomeMessageMapper.IsEntityInfoResponseMessage(entityInfo)) throw new ArgumentException($"Message type {entityInfo.GetType().Name} is not an ESPHome entity info response.", nameof(entityInfo));
-        if (!EspHomeMessageMapper.IsEntityStateResponseMessage(initialState)) throw new ArgumentException($"Message type {initialState.GetType().Name} is not an ESPHome entity state response.", nameof(initialState));
+        if (entityInfo is not IESPHomeEntityInfoMessage) throw new ArgumentException($"Message type {entityInfo.GetType().Name} is not an ESPHome entity info response.", nameof(entityInfo));
+        if (initialState is not IESPHomeStateMessage) throw new ArgumentException($"Message type {initialState.GetType().Name} is not an ESPHome entity state response.", nameof(initialState));
 
         var infoAddress = EntityAddress.FromMessage(entityInfo);
         var stateAddress = EntityAddress.FromMessage(initialState);
@@ -109,7 +109,7 @@ public sealed class EspHomeEntityConfiguration<TInfo, TState> : EspHomeEntityCon
     }
 
     /// <summary>Gets a snapshot of the retained entity state, or null when state retention is disabled.</summary>
-    public override IMessage? GetState() => GetTypedState();
+    public override IESPHomeMessage? GetState() => GetTypedState();
 
     /// <summary>Waits using the configured delay generator and the server time provider.</summary>
     public ValueTask WaitForDelayAsync(TimeProvider timeProvider, CancellationToken cancellationToken)
@@ -124,7 +124,7 @@ public sealed class EspHomeEntityConfiguration<TInfo, TState> : EspHomeEntityCon
     }
 
     /// <summary>Generates an isolated state message and updates the producer seed used for later snapshots.</summary>
-    public IMessage GenerateMessage()
+    public IESPHomeMessage GenerateMessage()
     {
         lock (_stateLock)
         {
@@ -148,7 +148,7 @@ public sealed class EspHomeEntityConfiguration<TInfo, TState> : EspHomeEntityCon
     }
 
     /// <summary>Replaces the retained entity state when the supplied message has the expected state type and address.</summary>
-    internal override bool TrySetState(IMessage state)
+    internal override bool TrySetState(IESPHomeMessage state)
     {
         if (!_retainState) return false;
         if (state is not TState typedState) return false;
@@ -158,7 +158,7 @@ public sealed class EspHomeEntityConfiguration<TInfo, TState> : EspHomeEntityCon
     }
 
     /// <summary>Applies a custom or built-in ESPHome command and atomically stores the resulting state.</summary>
-    internal override bool TryApplyCommand(IMessage command, out IMessage? state)
+    internal override bool TryApplyCommand(IESPHomeMessage command, out IESPHomeMessage? state)
     {
         ArgumentNullException.ThrowIfNull(command);
         state = null;
@@ -199,7 +199,7 @@ public sealed class EspHomeEntityConfiguration<TInfo, TState> : EspHomeEntityCon
 internal readonly record struct EntityAddress(uint DeviceId, uint Key)
 {
     /// <summary>Reads the standard key and optional device_id fields from an ESPHome entity message.</summary>
-    public static EntityAddress FromMessage(IMessage message)
+    public static EntityAddress FromMessage(IESPHomeMessage message)
     {
         ArgumentNullException.ThrowIfNull(message);
 

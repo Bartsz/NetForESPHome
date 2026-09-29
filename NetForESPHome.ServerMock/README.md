@@ -517,7 +517,7 @@ public interface IMessageProducer
 {
     ValueTask WaitForDelayAsync(TimeProvider timeProvider, CancellationToken cancellationToken);
 
-    IMessage GenerateMessage();
+    IEspHomeMessage GenerateMessage();
 }
 ```
 

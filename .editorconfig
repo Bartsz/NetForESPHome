@@ -1,0 +1,74 @@
+root = false
+
+[*.cs]
+dotnet_diagnostic.IDE0290.severity = refactoring
+# refactoring throw ArgumentNullException => ArgumentNullException.ThrowIfNull
+dotnet_diagnostic.CA1510.severity = refactoring
+
+# Enum members have same value
+dotnet_diagnostic.CA1069.severity = error
+
+# Avoid potentially expensive logging
+dotnet_diagnostic.CA1873.severity = silent
+
+dotnet_diagnostic.CS0168.severity = warning
+dotnet_diagnostic.CS0219.severity = warning
+
+
+dotnet_diagnostic.IDE0059.severity = error
+
+# Collection initialization can be simplified - LINQ.ToArray =>   [..LINQ]
+dotnet_diagnostic.IDE0305.severity = refactoring
+
+# Use range operator - span.Slice(0, 10) => span[0..10])
+dotnet_diagnostic.IDE0057.severity = refactoring
+
+dotnet_diagnostic.CA2012.severity = error
+dotnet_diagnostic.CS8604.severity = error
+dotnet_diagnostic.CS8603.severity = error
+dotnet_diagnostic.CS8602.severity = error
+dotnet_diagnostic.CS8601.severity = error
+dotnet_diagnostic.CS8600.severity = error
+dotnet_diagnostic.CS8625.severity = error
+
+
+# Use String.Equals instead of equality operator
+dotnet_diagnostic.MA0006.severity = none
+# Add a comma after the last value - Style rule
+dotnet_diagnostic.MA0007.severity = none
+# Prefer using collection abstraction instead of implementation
+dotnet_diagnostic.MA0016.severity = none
+# Fix TODO comment 
+dotnet_diagnostic.MA0026.severity = none
+# Combine LINQ methods - performance
+dotnet_diagnostic.MA0029.severity = none
+# Use an overload with a CancellationToken, available tokens: _cancellationTokenSource.Token, _connection.ConnectionCancellationToken
+dotnet_diagnostic.MA0040.severity = none
+# Use 'CancelAsync' instead of 'Cancel'
+dotnet_diagnostic.MA0042.severity = none
+# Use EventHandler<T> to declare events
+dotnet_diagnostic.MA0046.severity = none
+# Type Name should be same as class name - in this project we allow to have multiple types in single file
+dotnet_diagnostic.MA0048.severity = none
+# Make class or record sealed
+#dotnet_diagnostic.MA0053.severity = warning
+# Method is too long
+dotnet_diagnostic.MA0051.severity = none
+# Make class or record sealed 
+#MA0053.public_class_should_be_sealed = true
+#dotnet_diagnostic.MA0053.public_class_should_be_sealed  = error
+dotnet_diagnostic.MA0053.severity = error
+# Avoid comparison with bool constant - Style rule
+dotnet_diagnostic.MA0073.severity = none
+# Do not use implicit culture-sensitive ToString in interpolated strings
+dotnet_diagnostic.MA0076.severity = none
+# Use Explicit enum value instead of 0
+dotnet_diagnostic.MA0099.severity = none
+# Do not call ToString() when the type falls back to object.ToString()
+dotnet_diagnostic.MA0150.severity = none
+# Use HasFlag instead of bitwise checks
+dotnet_diagnostic.MA0192.severity = none
+# Provide Math MidpointRounding
+dotnet_diagnostic.MA0193.severity = none
+# Merge is expressions on the same value
+dotnet_diagnostic.MA0194.severity = none

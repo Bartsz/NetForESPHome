@@ -1,4 +1,5 @@
 ﻿using NetForESPHome.Client;
+using NetForESPHome.DomainModel.Native;
 
 namespace NetForESPHome.UnitTests;
 

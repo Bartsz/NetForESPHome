@@ -1,8 +1,9 @@
 ﻿using Google.Protobuf;
-using NetForESPHome.DomainModel;
+using NetForESPHome.DomainModel.Native;
 using Noise;
 using System.Buffers.Binary;
 using System.Net.Sockets;
+using System.Text.RegularExpressions;
 
 namespace NetForESPHome.Transports;
 
@@ -39,7 +40,7 @@ public sealed class NoiseMessageTransport : IMessageTransport
     }
 
     /// <summary>Reads, authenticates and deserializes the next encrypted ESPHome message.</summary>
-    public async ValueTask<IMessage> ReadMessageAsync(CancellationToken ct)
+    public async ValueTask<IESPHomeMessage> ReadMessageAsync(CancellationToken ct)
     {
         ThrowIfDisposed();
 
@@ -72,20 +73,20 @@ public sealed class NoiseMessageTransport : IMessageTransport
         var messageId = BinaryPrimitives.ReadUInt16BigEndian(_readPlaintextBuffer);
         var payload = _readPlaintextBuffer.AsSpan(MessageHeaderSize, plaintextLength - MessageHeaderSize);
 
-        return EspHomeMessageMapper.ParseMessage(messageId, payload);
+        return IESPHomeMessage.Parse(messageId, payload);
     }
 
     /// <summary>Serializes, encrypts and writes one ESPHome message.</summary>
-    public async ValueTask WriteMessageAsync(IMessage message, CancellationToken ct)
+    public async ValueTask WriteMessageAsync(IESPHomeMessage message, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(message);
         ThrowIfDisposed();
-
-        var messageSize = message.CalculateSize();
+        if (message is not IMessage protoMessage) return;
+        var messageSize = protoMessage.CalculateSize();
         if (messageSize > MaxMessageSize)
             throw new InvalidDataException($"ESPHome Noise message length {messageSize} exceeds the {MaxMessageSize}-byte limit.");
 
-        var messageId = EspHomeMessageMapper.GetMessageId(message);
+        var messageId = message.MessageId;
         if (messageId < 0 || messageId > ushort.MaxValue)
             throw new InvalidDataException($"ESPHome message ID {messageId} exceeds the 16-bit Noise message ID range.");
 
@@ -98,7 +99,7 @@ public sealed class NoiseMessageTransport : IMessageTransport
         BinaryPrimitives.WriteUInt16BigEndian(_writePlaintextBuffer, (ushort)messageId);
         BinaryPrimitives.WriteUInt16BigEndian(_writePlaintextBuffer.AsSpan(2), (ushort)messageSize);
 
-        message.WriteTo(_writePlaintextBuffer.AsSpan(MessageHeaderSize, messageSize));
+        protoMessage.WriteTo(_writePlaintextBuffer.AsSpan(MessageHeaderSize, messageSize));
 
         var bytesWritten = _transport.WriteMessage(
             _writePlaintextBuffer.AsSpan(0, plaintextLength),

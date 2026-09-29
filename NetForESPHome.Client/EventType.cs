@@ -1,10 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading;
-using System.Threading.Channels;
-using System.Threading.Tasks;
+﻿using System.Threading.Channels;
 
 namespace NetForESPHome.Client
 {
@@ -29,7 +23,7 @@ namespace NetForESPHome.Client
         Cloud
     }
 
-    public struct StateChangeEvent : IEvent
+    public readonly struct StateChangeEvent : IEvent
     {
         public StateChangeEvent(EventOrigin origin, bool newState)
         {
@@ -38,7 +32,7 @@ namespace NetForESPHome.Client
             Timestamp = DateTime.UtcNow;
         }
 
-        public EventType Type => EventType.StateChange;
+        public readonly EventType Type => EventType.StateChange;
         public EventOrigin Origin { get; }
         public DateTime Timestamp { get; }
         public bool NewState { get; } 
@@ -46,7 +40,7 @@ namespace NetForESPHome.Client
 
 
 
-    public struct TemperatureChangedEvent : IEvent
+    public readonly struct TemperatureChangedEvent : IEvent
     {
         public TemperatureChangedEvent(EventOrigin origin, double value)
         {
@@ -55,7 +49,7 @@ namespace NetForESPHome.Client
             Timestamp = DateTime.UtcNow;
         }
 
-        public EventType Type => EventType.TemperatureChanged;
+        public readonly EventType Type => EventType.TemperatureChanged;
         public EventOrigin Origin { get; }
         public DateTime Timestamp { get; }
         public double NewTemperature { get; }
@@ -63,7 +57,7 @@ namespace NetForESPHome.Client
 
     public interface IAutomationHandler<T> where T : IEvent
     {
-        ValueTask HandleAsync(T evt, CancellationToken cancellationToken = default);
+        ValueTask HandleAsync(T evt, CancellationToken ct = default);
     }
 
     public interface ICondition
@@ -81,7 +75,7 @@ namespace NetForESPHome.Client
     {
         IAutomationTrigger Trigger { get; }
         ICondition? Condition { get; }
-        Task ExecuteAsync(T evt, CancellationToken cancellationToken = default);
+        Task ExecuteAsync(T evt, CancellationToken ct = default);
     }
 
     public sealed class EventDispatcher
@@ -92,10 +86,9 @@ namespace NetForESPHome.Client
         public EventDispatcher()
         {
             int count = Enum.GetValues<EventType>().Cast<int>().Max();
-            _handlers = new List<IAutomationHandler<IEvent>>[count];
-
-            for (int i = 0; i < count; i++)
-                _handlers[i] = new List<IAutomationHandler<IEvent>>();
+            _handlers = Enumerable.Range(0, count + 1)
+                .Select(x => new List<IAutomationHandler<IEvent>>())
+                .ToArray();
         }
 
         public void Register(EventType kind, IAutomationHandler<IEvent> handler)
@@ -113,9 +106,9 @@ namespace NetForESPHome.Client
             _queue.Writer.TryWrite(evt);
         }
 
-        public async Task StartAsync(CancellationToken cancellationToken = default)
+        public async Task StartAsync(CancellationToken ct = default)
         {
-            while (await _queue.Reader.WaitToReadAsync(cancellationToken).ConfigureAwait(false))
+            while (await _queue.Reader.WaitToReadAsync(ct).ConfigureAwait(false))
             {
                 if (!_queue.Reader.TryRead(out var evt)) continue;
 
@@ -124,7 +117,7 @@ namespace NetForESPHome.Client
 
                 foreach (var handler in _handlers[eventType])
                 {
-                    _ = handler.HandleAsync(evt, cancellationToken).AsTask();
+                    _ = handler.HandleAsync(evt, ct).AsTask();
                 }
             }
         }
@@ -135,10 +128,10 @@ namespace NetForESPHome.Client
         public IAutomationTrigger Trigger { get; } = new SimpleTrigger("sensor.updated");
         public ICondition Condition { get; } = new TempAboveThreshold(25);
 
-        public async Task ExecuteAsync(TemperatureChangedEvent evt, CancellationToken cancellationToken)
+        public async Task ExecuteAsync(TemperatureChangedEvent evt, CancellationToken ct)
         {
             Console.WriteLine($"🔥 Temp too high: {evt.NewTemperature}°C. Turning on fan.");
-            await Task.Delay(100, cancellationToken); // simulate action
+            await Task.Delay(100, ct).ConfigureAwait(false); // simulate action
         }
     }
 

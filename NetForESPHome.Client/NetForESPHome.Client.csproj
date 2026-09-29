@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <PackageId>NetForESPHome.Client</PackageId>
-    <Authors>BartS</Authors> 
+    <Authors>BartS</Authors>
     <Description>
       Idiomatic .NET client for the ESPHome Native API protocol.
       Supports ESPHome device discovery, plaintext and Noise-encrypted connections,
@@ -25,21 +25,38 @@
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
     <Version>0.1.0</Version>
+
+    <TargetsForTfmSpecificBuildOutput>
+      $(TargetsForTfmSpecificBuildOutput);CopyProjectReferencesToPackage
+    </TargetsForTfmSpecificBuildOutput>
+
   </PropertyGroup>
- 
+
   <ItemGroup>
     <None Include=".\README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Zeroconf" />
     <PackageReference Include="Noise.NET" />
   </ItemGroup>
-  
-  <ItemGroup>
-    <ProjectReference Include="..\NetForESPHome.DomainModel\NetForESPHome.DomainModel.csproj" />
-    <ProjectReference Include="..\NetForESPHome.Transport\NetForESPHome.Transports.csproj" />
-  </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\NetForESPHome.DomainModel\NetForESPHome.DomainModel.csproj"  PrivateAssets="all" />
+    <ProjectReference Include="..\NetForESPHome.Transport\NetForESPHome.Transports.csproj"  PrivateAssets="all" />
+  </ItemGroup>
+  
+  <Target Name="CopyProjectReferencesToPackage"
+          DependsOnTargets="BuildOnlySettings;ResolveReferences">
+
+    <ItemGroup>
+      <_ProjectReferenceOutputs
+          Include="@(ReferenceCopyLocalPaths
+          ->WithMetadataValue('ReferenceSourceTarget', 'ProjectReference')
+          ->WithMetadataValue('PrivateAssets', 'All'))" />
+
+      <BuildOutputInPackage Include="@(_ProjectReferenceOutputs)" />
+    </ItemGroup>
+
+  </Target>
 
 </Project>

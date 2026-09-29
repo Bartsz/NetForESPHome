@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.Logging;
+using NetForESPHome.DomainModel.Native;
 
 namespace NetForESPHome.ServerMock.Example;
 
@@ -34,7 +35,9 @@ internal static class Program
             var pskBytes = new byte[32];
             new Random().NextBytes(pskBytes);
             pskBase64 = Convert.ToBase64String(pskBytes);
+            Console.WriteLine();
             Console.WriteLine(pskBase64);
+            Console.WriteLine();
         }
 
         var configuration = new EspHomeMockServerConfiguration(
@@ -86,6 +89,7 @@ internal static class Program
         while (true)
         {
             var key = Console.ReadKey();
+            Console.WriteLine();
             switch (key.Key)
             {
                 case ConsoleKey.Y:

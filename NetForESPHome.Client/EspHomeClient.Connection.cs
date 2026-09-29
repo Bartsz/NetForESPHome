@@ -1,12 +1,15 @@
 ﻿using Microsoft.Extensions.Logging;
 using NetForESPHome.Client.Model;
+using NetForESPHome.DomainModel.Native;
 using NetForESPHome.Transports;
 using System.Net.Sockets;
 using System.Threading.Channels;
 
+#pragma warning disable CS0612 // Type or member is obsolete
+
 namespace NetForESPHome.Client;
 
-/// <summary>Represents the lifecycle state of an ESPHome Native API connection.</summary>
+/// <summary>Represents the observable stage of the ESPHome Native API connection.</summary>
 public enum ConnectionState
 {
     SocketOpened,
@@ -14,6 +17,9 @@ public enum ConnectionState
     Connected,
     Disconnected
 }
+
+/// <summary>Handles a connection-close notification without participating in connection lifecycle control.</summary>
+public delegate Task EspHomeConnectionClosedHandler(object sender, EspHomeConnectionClosed e);
 
 public sealed partial class EspHomeClient
 {
@@ -23,7 +29,8 @@ public sealed partial class EspHomeClient
     private static readonly TimeSpan DisconnectTimeout = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan EntityListResponseTimeout = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan KeepAliveInterval = TimeSpan.FromSeconds(20);
-    private static readonly TimeSpan KeepAliveResponseTimeout = TimeSpan.FromSeconds(90);
+    private static readonly TimeSpan KeepAliveResponseTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan ReconnectDelay = TimeSpan.FromSeconds(5);
 
     private readonly string? _noisePsk;
     private readonly string? _password;
@@ -31,544 +38,466 @@ public sealed partial class EspHomeClient
     public readonly string Host;
     public readonly int Port;
 
-    private TcpClient? _tcpClient;
-    private NetworkStream? _networkStream;
-    private IMessageTransport? _messageTransport;
-    private CancellationTokenSource? _connectionCancellation;
-
-    private const int ConnectionLifecycleStarting = 0;
-    private const int ConnectionLifecycleEstablished = 1;
-    private const int ConnectionLifecycleClosed = 2;
-
-    private long _lastMessageReceivedTimestamp;
-    private long _connectionGeneration;
+    private ConnectionSupervisor? _connectionSupervisor;
+    private ConnectionSession? _activeSession;
     private int _state = (int)ConnectionState.Disconnected;
-    private int _connectInProgress;
-    private int _connectionLifecycle = ConnectionLifecycleClosed;
-    private int _closeIntent;
+    private int _lastDisconnectReason = -1;
     private int _disposed;
 
-    /// <summary>Establishes TCP, optional Noise transport and the ESPHome Native API session.</summary>
-    public async Task ConnectAsync(CancellationToken cancellationToken = default)
+    /// <summary>Notifies consumers after an established session closes without allowing consumer work to block reconnection.</summary>
+    public event EspHomeConnectionClosedHandler? ConnectionClosed;
+
+    /// <summary>Starts connection maintenance for the configured endpoint and waits until the first session is established.</summary>
+    public async Task ConnectAsync(CancellationToken ct = default)
     {
         ThrowIfDisposed();
-        cancellationToken.ThrowIfCancellationRequested();
+        ct.ThrowIfCancellationRequested();
 
-        var isAnotherConnectInProgress = Interlocked.CompareExchange(ref _connectInProgress, 1, 0) != 0;
-        if (isAnotherConnectInProgress) throw new InvalidOperationException("Client is already connecting.");
+        while (true)
+        {
+            var existingSupervisor = Volatile.Read(ref _connectionSupervisor);
+            if (existingSupervisor is not null)
+            {
+                if (existingSupervisor.IsStopRequested)
+                {
+                    await existingSupervisor.Stopped.Task.WaitAsync(ct).ConfigureAwait(false);
+                    continue;
+                }
+
+                await existingSupervisor.FirstConnected.Task.WaitAsync(ct).ConfigureAwait(false);
+                return;
+            }
+
+            var supervisor = new ConnectionSupervisor();
+            existingSupervisor = Interlocked.CompareExchange(ref _connectionSupervisor, supervisor, comparand: null);
+
+            if (existingSupervisor is not null)
+            {
+                supervisor.Dispose();
+                continue;
+            }
+
+            if (Volatile.Read(ref _disposed) != 0)
+            {
+                Interlocked.CompareExchange(ref _connectionSupervisor, value: null, supervisor);
+                supervisor.RequestStop();
+                supervisor.Stopped.TrySetResult(true);
+                supervisor.Dispose();
+                ThrowIfDisposed();
+            }
+
+            _ = RunConnectionSupervisorAsync(supervisor);
+
+            await supervisor.FirstConnected.Task.WaitAsync(ct).ConfigureAwait(false);
+            return;
+        }
+    }
+
+    /// <summary>Stops connection maintenance, gracefully closes the active ESPHome session when possible, and waits for all session loops to finish.</summary>
+    public async Task DisconnectAsync(CancellationToken ct = default)
+    {
+        ThrowIfDisposed();
+        ct.ThrowIfCancellationRequested();
+
+        var supervisor = Volatile.Read(ref _connectionSupervisor);
+        if (supervisor is null) return;
+
+        var activeSession = Volatile.Read(ref _activeSession);
+        activeSession?.MarkCloseIntent(EspHomeConnectionCloseReason.LocalDisconnect);
+        supervisor.RequestStop();
+
+        await supervisor.Stopped.Task.WaitAsync(ct).ConfigureAwait(false);
+    }
+
+    /// <summary>Owns all connection attempts so only one sequential session can exist for this client endpoint.</summary>
+    private async Task RunConnectionSupervisorAsync(ConnectionSupervisor supervisor)
+    {
+        try
+        {
+            while (!supervisor.IsStopRequested)
+            {
+                try
+                {
+                    var closeInfo = await RunConnectionSessionAsync(supervisor).ConfigureAwait(false);
+                    if (closeInfo.HasValue) PublishConnectionClosed(closeInfo.Value);
+                }
+                catch (OperationCanceledException) when (supervisor.IsStopRequested)
+                {
+                    break;
+                }
+                catch (UnauthorizedAccessException exception)
+                {
+                    supervisor.FirstConnected.TrySetException(exception);
+                    _logger?.LogError(exception, "ESPHome rejected authentication for {Host}:{Port}.", Host, Port);
+                    break;
+                }
+                catch (NotSupportedException exception)
+                {
+                    supervisor.FirstConnected.TrySetException(exception);
+                    _logger?.LogError(exception, "ESPHome protocol version is not supported for {Host}:{Port}.", Host, Port);
+                    break;
+                }
+                catch (Exception exception)
+                {
+                    _logger?.LogWarning(exception, "ESPHome connection attempt to {Host}:{Port} failed; the client will reconnect.", Host, Port);
+                }
+
+                if (supervisor.IsStopRequested) break;
+
+                try
+                {
+                    await Task.Delay(ReconnectDelay, _timeProvider, supervisor.StopCancellation.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (supervisor.IsStopRequested)
+                {
+                    break;
+                }
+            }
+        }
+        finally
+        {
+            if (!supervisor.IsStopRequested) supervisor.RequestStop();
+
+            SetState(ConnectionState.Disconnected);
+            Interlocked.CompareExchange(ref _connectionSupervisor, value: null, supervisor);
+
+            if (!supervisor.FirstConnected.Task.IsCompleted)
+            {
+                var ct = supervisor.StopCancellation.Token;
+                supervisor.FirstConnected.TrySetCanceled(ct);
+            }
+
+            supervisor.Stopped.TrySetResult(true);
+            supervisor.Dispose();
+        }
+    }
+
+    /// <summary>Creates, establishes, runs, and fully tears down one ESPHome session before another session can start.</summary>
+    private async Task<SessionCloseInfo?> RunConnectionSessionAsync(ConnectionSupervisor supervisor)
+    {
+        var session = await OpenConnectionSessionAsync(supervisor.StopCancellation.Token).ConfigureAwait(false);
+        var sessionPublished = false;
 
         try
         {
-            await WaitForDisconnectOperationAsync(cancellationToken).ConfigureAwait(false);
+            session.WriteLoopTask = WriteMessagesLoopAsync(session);
+            session.ReadLoopTask = ReadLoopAsync(session);
 
-            var isConnectionActive = State != ConnectionState.Disconnected;
-            if (isConnectionActive) throw new InvalidOperationException($"Client is already connected or connecting. State: {State}");
+            await CompleteApiHandshakeAsync(session, supervisor.StopCancellation.Token).ConfigureAwait(false);
+            supervisor.StopCancellation.Token.ThrowIfCancellationRequested();
 
-            await WaitForConnectionLoopsAsync().ConfigureAwait(false);
+            var existingSession = Interlocked.CompareExchange(ref _activeSession, session, comparand: null);
+            if (existingSession is not null) throw new InvalidOperationException("An ESPHome session is already active.");
 
-            var connectionCancellation = new CancellationTokenSource();
-            var existingConnectionCancellation = Interlocked.CompareExchange(ref _connectionCancellation, connectionCancellation, null);
+            sessionPublished = true;
+            supervisor.StopCancellation.Token.ThrowIfCancellationRequested();
 
-            if (existingConnectionCancellation is not null)
-            {
-                connectionCancellation.Dispose();
-                throw new InvalidOperationException("The previous connection has not finished shutting down.");
-            }
+            Volatile.Write(ref _lastDisconnectReason, -1);
+            SetState(ConnectionState.Connected);
+            supervisor.FirstConnected.TrySetResult(true);
+            session.KeepAliveLoopTask = KeepAliveLoopAsync(session);
+            await EnsureStatesSubscriptionAsync(session, session.Cancellation.Token).ConfigureAwait(false);
 
-            var connectionGeneration = Interlocked.Increment(ref _connectionGeneration);
-            var outputGeneration = Volatile.Read(ref _outputGeneration);
+            return await WaitForSessionCloseAsync(session, supervisor).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (sessionPublished) Interlocked.CompareExchange(ref _activeSession, value: null, session);
 
-            Volatile.Write(ref _connectionLifecycle, ConnectionLifecycleStarting);
-            Volatile.Write(ref _closeIntent, 0);
-            Volatile.Write(ref _connectionFailure, null);
-            ApiVersion = null;
-            LastDisconnectReason = null;
+            await StopSessionAsync(session).ConfigureAwait(false);
+            SetState(ConnectionState.Disconnected);
+        }
+    }
+
+    /// <summary>Opens TCP and the configured ESPHome transport while keeping partially created resources local until ownership can be transferred safely.</summary>
+    private async Task<ConnectionSession> OpenConnectionSessionAsync(CancellationToken ct)
+    {
+        var tcpClient = new TcpClient();
+        NetworkStream? networkStream = null;
+        IMessageTransport? messageTransport = null;
+
+        try
+        {
+            using var tcpTimeoutCancellation = new CancellationTokenSource(TcpConnectTimeout, _timeProvider);
+            using var tcpOperationCancellation = CancellationTokenSource.CreateLinkedTokenSource(ct, tcpTimeoutCancellation.Token);
 
             try
             {
-                ThrowIfDisposed();
-                ThrowIfConnectionFailed();
-
-                var tcpClient = new TcpClient();
-                _tcpClient = tcpClient;
-
-                using var tcpTimeoutCancellation = new CancellationTokenSource(TcpConnectTimeout, _timeProvider);
-                using var tcpOperationCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, connectionCancellation.Token, tcpTimeoutCancellation.Token);
-
-                try
-                {
-                    await tcpClient.ConnectAsync(Host, Port, tcpOperationCancellation.Token).ConfigureAwait(false);
-                    _logger?.LogInformation("Client established TCP connection to {Host}:{Port}.", Host, Port);
-                }
-                catch (OperationCanceledException) when (tcpTimeoutCancellation.IsCancellationRequested && !cancellationToken.IsCancellationRequested && !connectionCancellation.IsCancellationRequested)
-                {
-                    throw new TimeoutException($"ESPHome TCP connection did not complete within {TcpConnectTimeout}.");
-                }
-
-                ThrowIfConnectionFailed();
-
-                ConfigureTcpClient(tcpClient);
-
-                var networkStream = tcpClient.GetStream();
-                _networkStream = networkStream;
-                SetState(ConnectionState.SocketOpened);
-                _logger?.LogInformation("Client socket opened to {Host}:{Port}.", Host, Port);
-
-                IMessageTransport messageTransport;
-
-                if (_noisePsk is null)
-                {
-                    messageTransport = new PlainTextMessageTransport(networkStream);
-                }
-                else
-                {
-                    using var handshakeTimeoutCancellation = new CancellationTokenSource(NoiseHandshakeTimeout, _timeProvider);
-                    using var handshakeOperationCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, connectionCancellation.Token, handshakeTimeoutCancellation.Token);
-
-                    try
-                    {
-                        messageTransport = await CreateMessageTransportAsync(networkStream, handshakeOperationCancellation.Token).ConfigureAwait(false);
-                    }
-                    catch (OperationCanceledException) when (handshakeTimeoutCancellation.IsCancellationRequested && !cancellationToken.IsCancellationRequested && !connectionCancellation.IsCancellationRequested)
-                    {
-                        throw new TimeoutException($"ESPHome Noise handshake did not complete within {NoiseHandshakeTimeout}.");
-                    }
-                }
-
-                _messageTransport = messageTransport;
-
-                ThrowIfConnectionFailed();
-                SetState(ConnectionState.HandshakeCompleted);
-                _logger?.LogInformation("Client handshake completed to {Host}:{Port}.", Host, Port);
-
-                var messageWriteChannel = CreateMessageWriteChannel();
-                _messageWriteChannel = messageWriteChannel;
-
-                var helloResponseSource = new TaskCompletionSource<HelloResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
-                _helloResponseSource = helloResponseSource;
-
-                ThrowIfConnectionFailed();
-
-                Volatile.Write(ref _lastMessageReceivedTimestamp, _timeProvider.GetTimestamp());
-
-                _writeLoopTask = WriteMessagesLoopAsync(messageTransport, messageWriteChannel.Reader, connectionGeneration, connectionCancellation.Token);
-                _readLoopTask = ReadLoopAsync(messageTransport, messageWriteChannel.Writer, connectionGeneration, outputGeneration, connectionCancellation.Token);
-
-                var helloRequest = new HelloRequest { ClientInfo = _clientInfo, ApiVersionMajor = 1, ApiVersionMinor = 16 };
-                var helloWritten = await TryWriteMessageAndWaitAsync(messageWriteChannel.Writer, helloRequest, cancellationToken).ConfigureAwait(false);
-
-                if (!helloWritten)
-                {
-                    ThrowIfConnectionFailed();
-                    _logger?.LogError("ESPHome connection closed before the hello request could be written to {Host}:{Port}.", Host, Port);
-                    throw new IOException("ESPHome connection closed before the hello request could be written.");
-                }
-
-                if (_password is not null)
-                {
-                    var authenticationRequest = new AuthenticationRequest { Password = _password };
-                    var authenticationWritten = await TryWriteMessageAndWaitAsync(messageWriteChannel.Writer, authenticationRequest, cancellationToken).ConfigureAwait(false);
-
-                    if (!authenticationWritten)
-                    {
-                        ThrowIfConnectionFailed();
-                        _logger?.LogError("ESPHome connection closed before the authentication request could be written to {Host}:{Port}.", Host, Port);
-                        throw new IOException("ESPHome connection closed before the authentication request could be written.");
-                    }
-                }
-
-                HelloResponse helloResponse;
-
-                try
-                {
-                    helloResponse = await helloResponseSource.Task.WaitAsync(HelloTimeout, _timeProvider, cancellationToken).ConfigureAwait(false);
-                }
-                catch (TimeoutException exception) when (!cancellationToken.IsCancellationRequested)
-                {
-                    throw new TimeoutException($"ESPHome did not answer the hello request within {HelloTimeout}.", exception);
-                }
-
-                var isApiVersionUnsupported = helloResponse.ApiVersionMajor > 2;
-                if (isApiVersionUnsupported) throw new NotSupportedException($"ESPHome API major version {helloResponse.ApiVersionMajor} is not supported.");
-
-                ApiVersion = new ApiVersion(helloResponse.ApiVersionMajor, helloResponse.ApiVersionMinor);
-                Interlocked.CompareExchange(ref _helloResponseSource, null, helloResponseSource);
-
-                ThrowIfConnectionFailed();
-
-                var lifecycleBeforeEstablish = Interlocked.CompareExchange(ref _connectionLifecycle, ConnectionLifecycleEstablished, ConnectionLifecycleStarting);
-                if (lifecycleBeforeEstablish != ConnectionLifecycleStarting)
-                {
-                    ThrowIfConnectionFailed();
-                    _logger?.LogError("ESPHome connection closed while the session was being established to {Host}:{Port}.", Host, Port);
-                    throw new IOException("ESPHome connection closed while the session was being established.");
-                }
-
-                SetState(ConnectionState.Connected);
-
-                if (Volatile.Read(ref _connectionLifecycle) != ConnectionLifecycleEstablished)
-                {
-                    SetState(ConnectionState.Disconnected);
-                    ThrowIfConnectionFailed();
-                    throw new IOException("ESPHome connection closed while the session was being established.");
-                }
-
-                _keepAliveLoopTask = KeepAliveLoopAsync(messageWriteChannel.Writer, connectionGeneration, connectionCancellation.Token);
-                ThrowIfConnectionFailed();
+                await tcpClient.ConnectAsync(Host, Port, tcpOperationCancellation.Token).ConfigureAwait(false);
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            catch (OperationCanceledException) when (tcpTimeoutCancellation.IsCancellationRequested && !ct.IsCancellationRequested)
             {
-                MarkCloseIntent(EspHomeConnectionCloseReason.LocalDisconnect);
-                CloseConnection(connectionGeneration, EspHomeConnectionCloseReason.LocalDisconnect, publishConnectionClosed: false);
-                await WaitForConnectionLoopsAsync().ConfigureAwait(false);
-                _logger?.LogError("ESPHome connection closed due to cancellation while the session was being established to {Host}:{Port}.", Host, Port);
-                throw;
+                throw new TimeoutException($"ESPHome TCP connection did not complete within {TcpConnectTimeout}.");
             }
-            catch (OperationCanceledException exception)
+
+            ConfigureTcpClient(tcpClient);
+            networkStream = tcpClient.GetStream();
+            SetState(ConnectionState.SocketOpened);
+            _logger?.LogInformation("Client established TCP connection to {Host}:{Port}.", Host, Port);
+
+            if (_noisePsk is null)
             {
-                var connectionFailure = Volatile.Read(ref _connectionFailure);
-                var setupFailure = connectionFailure ?? new IOException("ESPHome connection closed while the session was being established.", exception);
-                var closeReason = ResolveCloseReason(EspHomeConnectionCloseReason.TransportFailure);
-
-                CloseConnection(connectionGeneration, closeReason, setupFailure);
-                await WaitForConnectionLoopsAsync().ConfigureAwait(false);
-                _logger?.LogError("ESPHome connection closed due to cancellation while the session was being established to {Host}:{Port}.", Host, Port);
-                throw setupFailure;
-            }
-            catch (Exception exception)
-            {
-                var closeReason = ResolveCloseReason(EspHomeConnectionCloseReason.TransportFailure);
-                CloseConnection(connectionGeneration, closeReason, exception);
-                await WaitForConnectionLoopsAsync().ConfigureAwait(false);
-                _logger?.LogError("ESPHome connection closed due to transport failure while the session was being established to {Host}:{Port}.", Host, Port);
-                throw;
-            }
-        }
-        finally
-        {
-            Volatile.Write(ref _connectInProgress, 0);
-        }
-    }
-
-    /// <summary>Sends keep-alive pings after inactivity and closes the connection when no valid inbound message arrives within the response timeout.</summary>
-    private async Task KeepAliveLoopAsync(ChannelWriter<QueuedMessage> writer, long connectionGeneration, CancellationToken cancellationToken)
-    {
-        long? pendingPingStartedTimestamp = null;
-        long lastMessageTimestampWhenPingStarted = 0;
-
-        try
-        {
-            while (!cancellationToken.IsCancellationRequested)
-            {
-                var lastMessageTimestamp = Volatile.Read(ref _lastMessageReceivedTimestamp);
-                var receivedMessageAfterPing = pendingPingStartedTimestamp.HasValue && lastMessageTimestamp != lastMessageTimestampWhenPingStarted;
-
-                if (receivedMessageAfterPing)
-                {
-                    pendingPingStartedTimestamp = null;
-                    continue;
-                }
-
-                if (!pendingPingStartedTimestamp.HasValue)
-                {
-                    var inactivity = _timeProvider.GetElapsedTime(lastMessageTimestamp);
-                    var timeUntilPing = KeepAliveInterval - inactivity;
-
-                    if (timeUntilPing > TimeSpan.Zero)
-                    {
-                        await Task.Delay(timeUntilPing, _timeProvider, cancellationToken).ConfigureAwait(false);
-                        continue;
-                    }
-
-                    var request = new PingRequest();
-                    var queued = await TryQueueMessageAsync(writer, request, cancellationToken).ConfigureAwait(false);
-                    if (!queued) return;
-
-                    pendingPingStartedTimestamp = _timeProvider.GetTimestamp();
-                    lastMessageTimestampWhenPingStarted = lastMessageTimestamp;
-                    continue;
-                }
-
-                var responseWaitTime = _timeProvider.GetElapsedTime(pendingPingStartedTimestamp.Value);
-                var responseTimedOut = responseWaitTime >= KeepAliveResponseTimeout;
-
-                if (responseTimedOut)
-                {
-                    var exception = new TimeoutException($"ESPHome did not produce a valid message within {KeepAliveResponseTimeout} after the keep-alive ping.");
-                    var closeReason = ResolveCloseReason(EspHomeConnectionCloseReason.KeepAliveTimeout);
-                    CloseConnection(connectionGeneration, closeReason, exception);
-                    return;
-                }
-
-                var remainingResponseTime = KeepAliveResponseTimeout - responseWaitTime;
-                var delay = remainingResponseTime < KeepAliveInterval ? remainingResponseTime : KeepAliveInterval;
-
-                await Task.Delay(delay, _timeProvider, cancellationToken).ConfigureAwait(false);
-
-                lastMessageTimestamp = Volatile.Read(ref _lastMessageReceivedTimestamp);
-                receivedMessageAfterPing = lastMessageTimestamp != lastMessageTimestampWhenPingStarted;
-
-                if (receivedMessageAfterPing)
-                {
-                    pendingPingStartedTimestamp = null;
-                    continue;
-                }
-
-                responseWaitTime = _timeProvider.GetElapsedTime(pendingPingStartedTimestamp.Value);
-                responseTimedOut = responseWaitTime >= KeepAliveResponseTimeout;
-
-                if (responseTimedOut)
-                {
-                    var exception = new TimeoutException($"ESPHome did not produce a valid message within {KeepAliveResponseTimeout} after the keep-alive ping.");
-                    var closeReason = ResolveCloseReason(EspHomeConnectionCloseReason.KeepAliveTimeout);
-                    CloseConnection(connectionGeneration, closeReason, exception);
-                    return;
-                }
-
-                var repeatedRequest = new PingRequest();
-                var repeatedQueued = await TryQueueMessageAsync(writer, repeatedRequest, cancellationToken).ConfigureAwait(false);
-                if (!repeatedQueued) return;
-            }
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-        }
-        catch (Exception) when (cancellationToken.IsCancellationRequested)
-        {
-        }
-        catch (Exception exception)
-        {
-            HandleConnectionFailure(connectionGeneration, exception);
-        }
-    }
-
-    /// <summary>Gracefully closes the active ESPHome session while sharing one physical disconnect operation between concurrent callers.</summary>
-    public Task DisconnectAsync(CancellationToken cancellationToken = default)
-    {
-        ThrowIfDisposed();
-        cancellationToken.ThrowIfCancellationRequested();
-
-        var operationSource = Volatile.Read(ref _disconnectOperationSource);
-
-        if (operationSource is null)
-        {
-            var newOperationSource = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var existingOperationSource = Interlocked.CompareExchange(ref _disconnectOperationSource, newOperationSource, null);
-
-            if (existingOperationSource is null)
-            {
-                operationSource = newOperationSource;
-                _ = RunDisconnectAsync(operationSource);
+                messageTransport = new PlainTextMessageTransport(networkStream);
             }
             else
             {
-                operationSource = existingOperationSource;
+                using var handshakeTimeoutCancellation = new CancellationTokenSource(NoiseHandshakeTimeout, _timeProvider);
+                using var handshakeOperationCancellation = CancellationTokenSource.CreateLinkedTokenSource(ct, handshakeTimeoutCancellation.Token);
+
+                try
+                {
+                    messageTransport = await CreateNoiseMessageTransportAsync(networkStream, handshakeOperationCancellation.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (handshakeTimeoutCancellation.IsCancellationRequested && !ct.IsCancellationRequested)
+                {
+                    throw new TimeoutException($"ESPHome Noise handshake did not complete within {NoiseHandshakeTimeout}.");
+                }
             }
-        }
 
-        return operationSource.Task.WaitAsync(cancellationToken);
-    }
+            SetState(ConnectionState.HandshakeCompleted);
+            _logger?.LogInformation("Client transport handshake completed to {Host}:{Port}.", Host, Port);
 
-    /// <summary>Runs the shared disconnect operation independently from cancellation requested by individual callers.</summary>
-    private async Task RunDisconnectAsync(TaskCompletionSource<bool> operationSource)
-    {
-        try
-        {
-            await DisconnectCoreAsync().ConfigureAwait(false);
-            operationSource.TrySetResult(true);
+            var outgoingMessages = CreateMessageWriteChannel();
+            var session = new ConnectionSession(tcpClient, networkStream, messageTransport, outgoingMessages);
+            return session;
         }
-        catch (Exception exception)
+        catch
         {
-            operationSource.TrySetException(exception);
-        }
-        finally
-        {
-            Interlocked.CompareExchange(ref _disconnectOperationSource, null, operationSource);
+            DisposeConnectionResource(messageTransport);
+            DisposeConnectionResource(networkStream);
+            DisposeConnectionResource(tcpClient);
+            SetState(ConnectionState.Disconnected);
+            throw;
         }
     }
 
-    /// <summary>Performs a best-effort ESPHome disconnect exchange and always closes the local session as a local lifecycle event.</summary>
-    private async Task DisconnectCoreAsync()
+    /// <summary>Completes ESPHome hello and optional legacy password authentication before the session becomes visible to public send operations.</summary>
+    private async Task CompleteApiHandshakeAsync(ConnectionSession session, CancellationToken ct)
     {
-        _logger?.LogInformation("ESPHome connection is being closed by local request to {Host}:{Port}.", Host, Port);
+        var helloRequest = new HelloRequest { ClientInfo = _clientInfo, ApiVersionMajor = 1, ApiVersionMinor = 16 };
 
-        var connectionGeneration = Volatile.Read(ref _connectionGeneration);
-        var connectionCancellation = Volatile.Read(ref _connectionCancellation);
+        var helloWritten = await TryWriteMessageAndWaitAsync(session.OutgoingMessages.Writer, helloRequest, ct).ConfigureAwait(false);
+        if (!helloWritten) throw CreateSetupClosedException(session);
 
-        if (State == ConnectionState.Disconnected)
+        var helloResponse = await WaitForSetupResponseAsync(session.HelloResponse.Task, session, HelloTimeout, "ESPHome did not answer the hello request within the configured timeout.", ct).ConfigureAwait(false);
+        var isApiVersionUnsupported = helloResponse.ApiVersionMajor > 2;
+        if (isApiVersionUnsupported) throw new NotSupportedException($"ESPHome API major version {helloResponse.ApiVersionMajor} is not supported.");
+
+        if (_password is not null)
         {
-            if (connectionCancellation is not null) CloseConnection(connectionGeneration, EspHomeConnectionCloseReason.LocalDisconnect);
-            await WaitForConnectionLoopsAsync().ConfigureAwait(false);
-            return;
+            var authenticationRequest = new AuthenticationRequest { Password = _password };
+            var authenticationWritten = await TryWriteMessageAndWaitAsync(session.OutgoingMessages.Writer, authenticationRequest, ct).ConfigureAwait(false);
+            if (!authenticationWritten) throw CreateSetupClosedException(session);
+
+            var authenticationResponse = await WaitForSetupResponseAsync(session.AuthenticationResponse.Task, session, HelloTimeout, "ESPHome did not answer the authentication request within the configured timeout.", ct).ConfigureAwait(false);
+            HandleAuthenticationResponse(authenticationResponse);
         }
 
-        MarkCloseIntent(EspHomeConnectionCloseReason.LocalDisconnect);
+        session.ApiVersion = new ApiVersion(helloResponse.ApiVersionMajor, helloResponse.ApiVersionMinor);
+    }
 
-        if (State != ConnectionState.Connected)
+    /// <summary>Waits for one setup response while also terminating promptly when the session fails or the setup timeout expires.</summary>
+    private async Task<TResponse> WaitForSetupResponseAsync<TResponse>(Task<TResponse> responseTask, ConnectionSession session, TimeSpan timeout, string timeoutMessage, CancellationToken ct)
+    {
+        var timeoutTask = Task.Delay(timeout, _timeProvider, ct);
+        var completedTask = await Task.WhenAny(responseTask, session.CloseRequested.Task, timeoutTask).ConfigureAwait(false);
+
+        if (ReferenceEquals(completedTask, responseTask)) return await responseTask.ConfigureAwait(false);
+
+        if (ReferenceEquals(completedTask, session.CloseRequested.Task))
         {
-            CloseConnection(connectionGeneration, EspHomeConnectionCloseReason.LocalDisconnect);
-            await WaitForConnectionLoopsAsync().ConfigureAwait(false);
-            return;
+            var closeInfo = await session.CloseRequested.Task.ConfigureAwait(false);
+            throw closeInfo.Failure ?? new IOException("ESPHome connection closed while the API session was being established.");
         }
 
-        var messageWriteChannel = Volatile.Read(ref _messageWriteChannel);
+        await timeoutTask.ConfigureAwait(false);
+        throw new TimeoutException(timeoutMessage);
+    }
 
-        if (messageWriteChannel is null)
+    /// <summary>Waits until the active session requests closure or the client requests connection maintenance to stop.</summary>
+    private async Task<SessionCloseInfo> WaitForSessionCloseAsync(ConnectionSession session, ConnectionSupervisor supervisor)
+    {
+        if (supervisor.IsStopRequested)
         {
-            CloseConnection(connectionGeneration, EspHomeConnectionCloseReason.LocalDisconnect);
-            await WaitForConnectionLoopsAsync().ConfigureAwait(false);
-            return;
+            session.MarkCloseIntent(EspHomeConnectionCloseReason.LocalDisconnect);
+            await RequestLocalDisconnectAsync(session).ConfigureAwait(false);
+            return await session.CloseRequested.Task.ConfigureAwait(false);
         }
 
-        var responseSource = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var existingResponseSource = Interlocked.CompareExchange(ref _disconnectResponseSource, responseSource, null);
-        if (existingResponseSource is not null) throw new InvalidOperationException("A disconnect response waiter is already active.");
+        var completedTask = await Task.WhenAny(session.CloseRequested.Task, supervisor.StopRequested.Task).ConfigureAwait(false);
+        if (ReferenceEquals(completedTask, session.CloseRequested.Task)) return await session.CloseRequested.Task.ConfigureAwait(false);
 
-        connectionCancellation = Volatile.Read(ref _connectionCancellation);
-        var connectionToken = connectionCancellation?.Token ?? CancellationToken.None;
+        session.MarkCloseIntent(EspHomeConnectionCloseReason.LocalDisconnect);
+        await RequestLocalDisconnectAsync(session).ConfigureAwait(false);
+        return await session.CloseRequested.Task.ConfigureAwait(false);
+    }
+
+    /// <summary>Performs the ESPHome disconnect exchange when the transport is still usable and always produces a local close request.</summary>
+    private async Task RequestLocalDisconnectAsync(ConnectionSession session)
+    {
+        if (session.CloseRequested.Task.IsCompleted) return;
+
+        session.MarkCloseIntent(EspHomeConnectionCloseReason.LocalDisconnect);
+        Exception? diagnosticFailure = null;
 
         using var timeoutCancellation = new CancellationTokenSource(DisconnectTimeout, _timeProvider);
-        using var operationCancellation = CancellationTokenSource.CreateLinkedTokenSource(connectionToken, timeoutCancellation.Token);
-
-        Exception? diagnosticFailure = null;
+        using var operationCancellation = CancellationTokenSource.CreateLinkedTokenSource(session.Cancellation.Token, timeoutCancellation.Token);
 
         try
         {
             var request = new DisconnectRequest();
-            var requestWritten = await TryWriteMessageAndWaitAsync(messageWriteChannel.Writer, request, operationCancellation.Token).ConfigureAwait(false);
+            var requestWritten = await TryWriteMessageAndWaitAsync(session.OutgoingMessages.Writer, request, operationCancellation.Token).ConfigureAwait(false);
 
             if (!requestWritten)
             {
-                diagnosticFailure = Volatile.Read(ref _connectionFailure);
-                return;
+                if (session.CloseRequested.Task.IsCompleted) return;
+                diagnosticFailure = new IOException("ESPHome connection closed before the disconnect request could be written.");
             }
+            else
+            {
+                var cancellationTask = Task.Delay(Timeout.InfiniteTimeSpan, _timeProvider, operationCancellation.Token);
+                var completedTask = await Task.WhenAny(session.DisconnectResponse.Task, session.CloseRequested.Task, cancellationTask).ConfigureAwait(false);
 
-            await responseSource.Task.WaitAsync(operationCancellation.Token).ConfigureAwait(false);
+                if (ReferenceEquals(completedTask, session.CloseRequested.Task)) return;
+
+                if (ReferenceEquals(completedTask, cancellationTask))
+                {
+                    if (timeoutCancellation.IsCancellationRequested && !session.Cancellation.IsCancellationRequested)
+                    {
+                        diagnosticFailure = new TimeoutException($"ESPHome did not complete the disconnect exchange within {DisconnectTimeout}.");
+                    }
+                }
+            }
         }
-        catch (OperationCanceledException) when (timeoutCancellation.IsCancellationRequested && !connectionToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (timeoutCancellation.IsCancellationRequested && !session.Cancellation.IsCancellationRequested)
         {
             diagnosticFailure = new TimeoutException($"ESPHome did not complete the disconnect exchange within {DisconnectTimeout}.");
         }
-        catch (OperationCanceledException) when (connectionToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (session.Cancellation.IsCancellationRequested)
         {
-            diagnosticFailure ??= Volatile.Read(ref _connectionFailure);
-        }
-        finally
-        {
-            Interlocked.CompareExchange(ref _disconnectResponseSource, null, responseSource);
-
-            CloseConnection(connectionGeneration, EspHomeConnectionCloseReason.LocalDisconnect, diagnosticFailure);
-            await WaitForConnectionLoopsAsync().ConfigureAwait(false);
+            if (session.CloseRequested.Task.IsCompleted) return;
         }
 
-
+        session.RequestClose(EspHomeConnectionCloseReason.LocalDisconnect, diagnosticFailure);
     }
 
-    /// <summary>Marks local or remote disconnect intent before any write that can race with a transport failure.</summary>
-    private void MarkCloseIntent(EspHomeConnectionCloseReason reason)
+    /// <summary>Stops all loops owned by one session, fails session-bound operations, and releases its transport resources before reconnecting.</summary>
+    private async Task StopSessionAsync(ConnectionSession session)
     {
-        var isExpectedDisconnect = reason is EspHomeConnectionCloseReason.LocalDisconnect or EspHomeConnectionCloseReason.RemoteDisconnect;
-        if (!isExpectedDisconnect) throw new ArgumentOutOfRangeException(nameof(reason), reason, "Only local and remote disconnect can be stored as close intent.");
+        if (!session.Cancellation.IsCancellationRequested) session.Cancellation.Cancel();
+        session.OutgoingMessages.Writer.TryComplete();
 
-        if (reason == EspHomeConnectionCloseReason.RemoteDisconnect)
-        {
-            Interlocked.Exchange(ref _closeIntent, (int)EspHomeConnectionCloseReason.RemoteDisconnect);
-            return;
-        }
+        DisposeConnectionResource(session.Transport);
+        DisposeConnectionResource(session.NetworkStream);
+        DisposeConnectionResource(session.TcpClient);
 
-        Interlocked.CompareExchange(ref _closeIntent, (int)EspHomeConnectionCloseReason.LocalDisconnect, 0);
+        await session.ReadLoopTask.ConfigureAwait(false);
+        await session.WriteLoopTask.ConfigureAwait(false);
+        await session.KeepAliveLoopTask.ConfigureAwait(false);
+
+        FailPendingOperations(session);
+        ClearCameraAssemblies(session);
+        session.Cancellation.Dispose();
     }
 
-    /// <summary>Preserves an already-declared local or remote disconnect classification over later transport failures.</summary>
-    private EspHomeConnectionCloseReason ResolveCloseReason(EspHomeConnectionCloseReason fallbackReason)
+    /// <summary>Sends periodic keep-alive pings and closes the session when ESPHome does not answer within the configured response timeout.</summary>
+    private async Task KeepAliveLoopAsync(ConnectionSession session)
     {
-        var closeIntent = (EspHomeConnectionCloseReason)Volatile.Read(ref _closeIntent);
-        var hasExpectedIntent = closeIntent is EspHomeConnectionCloseReason.LocalDisconnect or EspHomeConnectionCloseReason.RemoteDisconnect;
-        return hasExpectedIntent ? closeIntent : fallbackReason;
-    }
-
-    /// <summary>Claims lifecycle closure exactly once, invalidates prior output, completes pending operations and releases all current transport resources.</summary>
-    private void CloseConnection(long connectionGeneration, EspHomeConnectionCloseReason reason, Exception? failure = null, bool publishConnectionClosed = true)
-    {
-        var activeConnectionGeneration = Volatile.Read(ref _connectionGeneration);
-        if (connectionGeneration != activeConnectionGeneration) return;
-
-        var previousLifecycle = Interlocked.Exchange(ref _connectionLifecycle, ConnectionLifecycleClosed);
-        if (previousLifecycle == ConnectionLifecycleClosed) return;
-
-        var effectiveReason = reason == EspHomeConnectionCloseReason.OutputConsumerStalled ? reason : ResolveCloseReason(reason);
-        var wasEstablished = previousLifecycle == ConnectionLifecycleEstablished;
-        var newOutputGeneration = wasEstablished ? Interlocked.Increment(ref _outputGeneration) : Volatile.Read(ref _outputGeneration);
-
-        SetState(ConnectionState.Disconnected);
-
-        var shouldPublishConnectionClosed = publishConnectionClosed && wasEstablished && effectiveReason != EspHomeConnectionCloseReason.OutputConsumerStalled;
-        if (shouldPublishConnectionClosed)
-        {
-            var remoteReason = effectiveReason == EspHomeConnectionCloseReason.RemoteDisconnect ? LastDisconnectReason : null;
-            var payload = new EspHomeConnectionClosed(effectiveReason, remoteReason, failure);
-            var message = new EspHomeMessage(EspHomeMessageType.ConnectionClosed, payload);
-            var envelope = new OutputMessageEnvelope(newOutputGeneration, message);
-
-            _outputChannel.Writer.TryWrite(envelope);
-        }
-
-        FailPendingOperations();
-
-        var closeFailure = failure;
-        if (closeFailure is not null) Interlocked.CompareExchange(ref _connectionFailure, closeFailure, null);
-
-        var helloResponseSource = Interlocked.Exchange(ref _helloResponseSource, null);
-        var disconnectResponseSource = Interlocked.Exchange(ref _disconnectResponseSource, null);
-
-        if (helloResponseSource is not null)
-        {
-            var setupFailure = closeFailure ?? new IOException("ESPHome connection closed during setup.");
-            helloResponseSource.TrySetException(setupFailure);
-        }
-
-        disconnectResponseSource?.TrySetResult(false);
-
-        var connectionCancellation = Volatile.Read(ref _connectionCancellation);
-        closeFailure = CancelConnection(connectionCancellation, closeFailure);
-
-        var messageWriteChannel = Interlocked.Exchange(ref _messageWriteChannel, null);
-        messageWriteChannel?.Writer.TryComplete();
-
-        var messageTransport = Interlocked.Exchange(ref _messageTransport, null);
-        var networkStream = Interlocked.Exchange(ref _networkStream, null);
-        var tcpClient = Interlocked.Exchange(ref _tcpClient, null);
-
-        closeFailure = DisposeConnectionResource(messageTransport, closeFailure);
-        closeFailure = DisposeConnectionResource(networkStream, closeFailure);
-        closeFailure = DisposeConnectionResource(tcpClient, closeFailure);
-
-        if (closeFailure is not null) Interlocked.CompareExchange(ref _connectionFailure, closeFailure, null);
-
-        ApiVersion = null;
-    }
-
-    /// <summary>Cancels the current connection token while preserving the first diagnostic failure if cancellation callbacks fail.</summary>
-    private static Exception? CancelConnection(CancellationTokenSource? cancellation, Exception? failure)
-    {
-        if (cancellation is null || cancellation.IsCancellationRequested) return failure;
+        var ct = session.Cancellation.Token;
 
         try
         {
-            cancellation.Cancel();
-        }
-        catch (Exception exception)
-        {
-            failure ??= exception;
-        }
+            while (!ct.IsCancellationRequested)
+            {
+                await Task.Delay(KeepAliveInterval, _timeProvider, ct).ConfigureAwait(false);
 
-        return failure;
+                if (Volatile.Read(ref session.ApplicationDispatchInProgress) != 0) continue;
+
+                var responseCompletion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                var existingResponseCompletion = Interlocked.CompareExchange(ref session.PendingPingResponse, responseCompletion, comparand: null);
+                if (existingResponseCompletion is not null) throw new InvalidOperationException("A keep-alive ping is already awaiting its response.");
+
+                try
+                {
+                    var request = new PingRequest();
+                    var queued = await TryQueueMessageAsync(session, request, ct).ConfigureAwait(false);
+                    if (!queued) return;
+
+                    try
+                    {
+                        await responseCompletion.Task.WaitAsync(KeepAliveResponseTimeout, _timeProvider, ct).ConfigureAwait(false);
+                    }
+                    catch (TimeoutException) when (!ct.IsCancellationRequested)
+                    {
+                        if (Volatile.Read(ref session.ApplicationDispatchInProgress) != 0) continue;
+
+                        var failure = new TimeoutException($"ESPHome did not answer the keep-alive ping within {KeepAliveResponseTimeout}.");
+                        session.RequestClose(EspHomeConnectionCloseReason.TransportFailure, failure);
+                        return;
+                    }
+                }
+                finally
+                {
+                    Interlocked.CompareExchange(ref session.PendingPingResponse, value: null, responseCompletion);
+                }
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+        }
     }
 
-    /// <summary>Disposes one owned connection resource while preserving the first diagnostic failure.</summary>
-    private static Exception? DisposeConnectionResource(IDisposable? resource, Exception? failure)
+    /// <summary>Schedules every connection-close handler independently so consumer latency and failures never delay reconnection.</summary>
+    private void PublishConnectionClosed(SessionCloseInfo closeInfo)
     {
-        if (resource is null) return failure;
+        if (closeInfo.RemoteReason.HasValue) Volatile.Write(ref _lastDisconnectReason, closeInfo.RemoteReason.Value);
+
+        var handlers = ConnectionClosed?.GetInvocationList();
+        if (handlers is null) return;
+
+        var eventArgs = new EspHomeConnectionClosed(closeInfo.Reason, closeInfo.RemoteReason, closeInfo.Failure);
+
+        foreach (var handlerDelegate in handlers)
+        {
+            if (handlerDelegate is not EspHomeConnectionClosedHandler handler) continue;
+            _ = InvokeConnectionClosedHandlerAsync(handler, eventArgs);
+        }
+    }
+
+    /// <summary>Runs one consumer handler asynchronously and isolates its failures from the client connection lifecycle.</summary>
+    private async Task InvokeConnectionClosedHandlerAsync(EspHomeConnectionClosedHandler handler, EspHomeConnectionClosed eventArgs)
+    {
+        await Task.Yield();
+
+        try
+        {
+            await handler(this, eventArgs).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+        }
+    }
+
+    /// <summary>Creates a setup exception from the first session failure when a queued setup write cannot complete.</summary>
+    private static Exception CreateSetupClosedException(ConnectionSession session)
+    {
+        if (!session.CloseRequested.Task.IsCompleted)
+        {
+            var exception = new IOException("ESPHome connection closed while the API session was being established.");
+            return exception;
+        }
+
+        var closeInfo = session.CloseRequested.Task.GetAwaiter().GetResult();
+        if (closeInfo.Failure is not null) return closeInfo.Failure;
+
+        var setupException = new IOException("ESPHome connection closed while the API session was being established.");
+        return setupException;
+    }
+
+    /// <summary>Releases one connection resource without allowing cleanup failures to prevent the remaining session resources from being released.</summary>
+    private void DisposeConnectionResource(IDisposable? resource)
+    {
+        if (resource is null) return;
 
         try
         {
@@ -576,44 +505,8 @@ public sealed partial class EspHomeClient
         }
         catch (Exception exception)
         {
-            failure ??= exception;
+            _logger?.LogWarning(exception, "Failed to dispose an ESPHome connection resource for {Host}:{Port}.", Host, Port);
         }
-
-        return failure;
-    }
-
-    /// <summary>Waits for an already-running shared disconnect operation before a new connection generation is allowed to start.</summary>
-    private async Task WaitForDisconnectOperationAsync(CancellationToken cancellationToken)
-    {
-        var operationSource = Volatile.Read(ref _disconnectOperationSource);
-        if (operationSource is null) return;
-
-        await operationSource.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
-        Interlocked.CompareExchange(ref _disconnectOperationSource, null, operationSource);
-    }
-
-    /// <summary>Waits for the captured connection loops and releases their cancellation source without affecting a newer connection.</summary>
-    private async Task WaitForConnectionLoopsAsync()
-    {
-        var readLoopTask = Volatile.Read(ref _readLoopTask);
-        var writeLoopTask = Volatile.Read(ref _writeLoopTask);
-        var keepAliveLoopTask = Volatile.Read(ref _keepAliveLoopTask);
-        var connectionCancellation = Volatile.Read(ref _connectionCancellation);
-
-        if (readLoopTask is not null) await readLoopTask.ConfigureAwait(false);
-        if (writeLoopTask is not null) await writeLoopTask.ConfigureAwait(false);
-        if (keepAliveLoopTask is not null) await keepAliveLoopTask.ConfigureAwait(false);
-
-        if (readLoopTask is not null) Interlocked.CompareExchange(ref _readLoopTask, null, readLoopTask);
-        if (writeLoopTask is not null) Interlocked.CompareExchange(ref _writeLoopTask, null, writeLoopTask);
-        if (keepAliveLoopTask is not null) Interlocked.CompareExchange(ref _keepAliveLoopTask, null, keepAliveLoopTask);
-
-        if (connectionCancellation is null) return;
-
-        var ownedCancellation = Interlocked.CompareExchange(ref _connectionCancellation, null, connectionCancellation);
-        var ownsCancellation = ReferenceEquals(ownedCancellation, connectionCancellation);
-
-        if (ownsCancellation) connectionCancellation.Dispose();
     }
 
     /// <summary>Prevents new operations after the client lifetime has ended.</summary>
@@ -623,36 +516,190 @@ public sealed partial class EspHomeClient
         if (isDisposed) throw new ObjectDisposedException(nameof(EspHomeClient));
     }
 
-    /// <summary>Stops the active connection, waits for protocol processing to finish and permanently completes the application output stream.</summary>
+    /// <summary>Updates the observable connection state without using it as an ownership or synchronization mechanism.</summary>
+    private void SetState(ConnectionState state)
+    {
+        Volatile.Write(ref _state, (int)state);
+    }
+
+    /// <summary>Stops connection maintenance and permanently completes all application-facing input channels.</summary>
     public async ValueTask DisposeAsync()
     {
         var wasAlreadyDisposed = Interlocked.Exchange(ref _disposed, 1) != 0;
         if (wasAlreadyDisposed) return;
 
-        var connectionGeneration = Volatile.Read(ref _connectionGeneration);
-        var hasActiveConnection = State != ConnectionState.Disconnected || Volatile.Read(ref _connectionCancellation) is not null;
+        var activeSession = Volatile.Read(ref _activeSession);
+        activeSession?.MarkCloseIntent(EspHomeConnectionCloseReason.LocalDisconnect);
 
-        if (hasActiveConnection)
+        var supervisor = Volatile.Read(ref _connectionSupervisor);
+        if (supervisor is not null)
         {
-            MarkCloseIntent(EspHomeConnectionCloseReason.LocalDisconnect);
-            CloseConnection(connectionGeneration, EspHomeConnectionCloseReason.LocalDisconnect);
+            supervisor.RequestStop();
+            await supervisor.Stopped.Task.ConfigureAwait(false);
         }
 
-        await WaitForConnectionLoopsAsync().ConfigureAwait(false);
+        _incomingMessagesChannel.Writer.TryComplete();
+        _incomingStateChangeMessages.Writer.TryComplete();
+        _dynamicEntitiesRegistrationChannel.Writer.TryComplete();
+        GC.SuppressFinalize(this);
+    }
 
-        try
+    /// <summary>Coordinates one client-level period in which the client continuously maintains a session to its fixed endpoint.</summary>
+    private sealed class ConnectionSupervisor : IDisposable
+    {
+        private int _stopRequested;
+
+        /// <summary>Cancels setup and reconnect delays when connection maintenance is requested to stop.</summary>
+        public CancellationTokenSource StopCancellation { get; } = new();
+
+        /// <summary>Signals the first successfully established session to callers waiting in <see cref="ConnectAsync"/>.</summary>
+        public TaskCompletionSource<bool> FirstConnected { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>Signals the supervisor loop to gracefully close an already established session.</summary>
+        public TaskCompletionSource<bool> StopRequested { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>Signals that no setup attempt or active session remains owned by this supervisor.</summary>
+        public TaskCompletionSource<bool> Stopped { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>Gets whether connection maintenance has been requested to stop.</summary>
+        public bool IsStopRequested => Volatile.Read(ref _stopRequested) != 0;
+
+        /// <summary>Requests shutdown exactly once and wakes both setup waits and an active session wait.</summary>
+        public void RequestStop()
         {
-            var disconnectOperationSource = Volatile.Read(ref _disconnectOperationSource);
-            if (disconnectOperationSource is not null)
+            var wasAlreadyRequested = Interlocked.Exchange(ref _stopRequested, 1) != 0;
+            if (wasAlreadyRequested) return;
+
+            StopRequested.TrySetResult(true);
+            StopCancellation.Cancel();
+        }
+
+        /// <summary>Releases the cancellation source after the supervisor no longer owns any asynchronous operation.</summary>
+        public void Dispose()
+        {
+            StopCancellation.Dispose();
+        }
+    }
+
+    /// <summary>Owns every resource and pending protocol operation that must never survive an ESPHome reconnect.</summary>
+    private sealed class ConnectionSession
+    {
+        private int _closeIntent;
+        private int _remoteDisconnectReason = -1;
+
+        /// <summary>Creates one fully transport-initialized session with fresh outgoing and response queues that cannot survive reconnect.</summary>
+        public ConnectionSession(TcpClient tcpClient, NetworkStream networkStream, IMessageTransport transport, Channel<QueuedMessage> outgoingMessages)
+        {
+            TcpClient = tcpClient;
+            NetworkStream = networkStream;
+            Transport = transport;
+            OutgoingMessages = outgoingMessages;
+
+            ResponseCallbacks = Enumerable.Range(0, IESPHomeMessage.MaxMsgId +1).Select(x=> new PendingResponseQueue()).ToArray();
+        }
+
+        /// <summary>Gets the socket owned exclusively by this session.</summary>
+        public TcpClient TcpClient { get; }
+
+        /// <summary>Gets the network stream owned exclusively by this session.</summary>
+        public NetworkStream NetworkStream { get; }
+
+        /// <summary>Gets the plaintext or Noise transport used by all protocol loops in this session.</summary>
+        public IMessageTransport Transport { get; }
+
+        /// <summary>Gets the session-local queue that serializes every protocol write.</summary>
+        public Channel<QueuedMessage> OutgoingMessages { get; }
+
+        /// <summary>Gets the token source that terminates all loops belonging to this session.</summary>
+        public CancellationTokenSource Cancellation { get; } = new();
+
+        /// <summary>Gets the setup waiter completed by the ESPHome hello response.</summary>
+        public TaskCompletionSource<HelloResponse> HelloResponse { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>Gets the setup waiter completed by the legacy password authentication response.</summary>
+        public TaskCompletionSource<AuthenticationResponse> AuthenticationResponse { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>Gets the graceful-disconnect waiter completed by the ESPHome disconnect response.</summary>
+        public TaskCompletionSource<bool> DisconnectResponse { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>Gets the single terminal close request that causes the supervisor to tear this session down.</summary>
+        public TaskCompletionSource<SessionCloseInfo> CloseRequested { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>Gets response waiters in registration order, indexed by the protocol message identifier they expect from this session.</summary>
+        public PendingResponseQueue[] ResponseCallbacks { get; }
+
+        /// <summary>Gets or sets the response signal for the single keep-alive ping currently in flight.</summary>
+        public TaskCompletionSource<bool>? PendingPingResponse;
+
+        /// <summary>Indicates that the read loop is dispatching an application message and may currently be blocked by public-channel backpressure.</summary>
+        public int ApplicationDispatchInProgress;
+
+        /// <summary>Gets partial camera frames whose chunks must all originate from this session.</summary>
+        public Dictionary<(uint DeviceId, uint Key), CameraFrameAssembly?> CameraAssemblies { get; } = [];
+
+        /// <summary>Gets or sets the active entity discovery assembly for this session.</summary>
+        public EntityListAssembly? CurrentEntityListAssembly;
+
+        /// <summary>Gets or sets the API version reported during this session setup.</summary>
+        public ApiVersion? ApiVersion { get; set; }
+
+        /// <summary>Gets or sets the read loop task after protocol processing starts.</summary>
+        public Task ReadLoopTask { get; set; } = Task.CompletedTask;
+
+        /// <summary>Gets or sets the serialized write loop task after protocol processing starts.</summary>
+        public Task WriteLoopTask { get; set; } = Task.CompletedTask;
+
+        /// <summary>Gets or sets the keep-alive loop task after the session becomes connected.</summary>
+        public Task KeepAliveLoopTask { get; set; } = Task.CompletedTask;
+
+        /// <summary>Ensures the persistent state subscription is sent at most once in this session.</summary>
+        public int StatesSubscriptionSent;
+
+        /// <summary>Records a local or remote disconnect intent so secondary transport failures keep the initiating close classification.</summary>
+        public void MarkCloseIntent(EspHomeConnectionCloseReason reason, int? remoteReason = null)
+        {
+            var isExpectedDisconnect = reason is EspHomeConnectionCloseReason.LocalDisconnect or EspHomeConnectionCloseReason.RemoteDisconnect;
+            if (!isExpectedDisconnect) throw new ArgumentOutOfRangeException(nameof(reason), reason, "Only local and remote disconnect can be stored as close intent.");
+
+            if (reason == EspHomeConnectionCloseReason.RemoteDisconnect)
             {
-                await disconnectOperationSource.Task.ConfigureAwait(false);
-                Interlocked.CompareExchange(ref _disconnectOperationSource, null, disconnectOperationSource);
+                if (remoteReason.HasValue) Volatile.Write(ref _remoteDisconnectReason, remoteReason.Value);
+                Interlocked.Exchange(ref _closeIntent, (int)EspHomeConnectionCloseReason.RemoteDisconnect);
+                return;
             }
+
+            Interlocked.CompareExchange(ref _closeIntent, (int)EspHomeConnectionCloseReason.LocalDisconnect, 0);
         }
-        finally
+
+        /// <summary>Requests session termination exactly once while preserving an already declared local or remote disconnect intent.</summary>
+        public void RequestClose(EspHomeConnectionCloseReason fallbackReason, Exception? failure = null)
         {
-            _outputChannel.Writer.TryComplete();
-            GC.SuppressFinalize(this);
+            var effectiveReason = ResolveCloseReason(fallbackReason);
+            var remoteReasonValue = Volatile.Read(ref _remoteDisconnectReason);
+            int? remoteReason = effectiveReason == EspHomeConnectionCloseReason.RemoteDisconnect && remoteReasonValue >= 0 ? remoteReasonValue : null;
+            var closeInfo = new SessionCloseInfo(effectiveReason, remoteReason, failure);
+            CloseRequested.TrySetResult(closeInfo);
         }
+
+        /// <summary>Returns the declared disconnect intent when one exists, otherwise the supplied failure classification.</summary>
+        private EspHomeConnectionCloseReason ResolveCloseReason(EspHomeConnectionCloseReason fallbackReason)
+        {
+            var closeIntent = (EspHomeConnectionCloseReason)Volatile.Read(ref _closeIntent);
+            var hasExpectedIntent = closeIntent is EspHomeConnectionCloseReason.LocalDisconnect or EspHomeConnectionCloseReason.RemoteDisconnect;
+            return hasExpectedIntent ? closeIntent : fallbackReason;
+        }
+    }
+
+    /// <summary>Describes why one established session ended without coupling session loops to global client state.</summary>
+    private readonly struct SessionCloseInfo(EspHomeConnectionCloseReason reason, int? remoteReason, Exception? failure)
+    {
+        /// <summary>Gets the semantic reason that caused the session to end.</summary>
+        public EspHomeConnectionCloseReason Reason { get; } = reason;
+
+        /// <summary>Gets the raw reason supplied by ESPHome for a remote disconnect.</summary>
+        public int? RemoteReason { get; } = remoteReason;
+
+        /// <summary>Gets the first diagnostic failure associated with the session end when one exists.</summary>
+        public Exception? Failure { get; } = failure;
     }
 }

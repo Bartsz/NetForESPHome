@@ -1,4 +1,5 @@
 ﻿using Google.Protobuf;
+using NetForESPHome.DomainModel.Native;
 
 namespace NetForESPHome.ServerMock;
 
@@ -43,7 +44,7 @@ public sealed class EspHomeBluetoothDeviceConfiguration : IMessageProducer
     }
 
     /// <summary>Creates one raw Bluetooth advertisement batch containing the configured simulated device.</summary>
-    public IMessage GenerateMessage()
+    public IESPHomeMessage GenerateMessage()
     {
         var data = _generateAdvertisementData();
         if (data.Length > MaximumAdvertisementDataLength)

@@ -1,4 +1,4 @@
-﻿using Google.Protobuf;
+﻿using NetForESPHome.DomainModel.Native;
 
 namespace NetForESPHome.ServerMock;
 
@@ -9,5 +9,5 @@ public interface IMessageProducer
     ValueTask WaitForDelayAsync(TimeProvider timeProvider, CancellationToken cancellationToken);
 
     /// <summary>Generates the next ESPHome protocol message and updates retained producer state when applicable.</summary>
-    IMessage GenerateMessage();
+    IESPHomeMessage GenerateMessage();
 }

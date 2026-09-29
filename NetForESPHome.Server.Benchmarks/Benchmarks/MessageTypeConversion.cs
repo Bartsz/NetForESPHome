@@ -1,6 +1,7 @@
 ﻿using BenchmarkDotNet.Jobs;
 using Google.Protobuf;
 using Google.Protobuf.Reflection;
+using NetForESPHome.DomainModel.Native;
 
 namespace NetForESPHome.Server.Benchmarks.Benchmarks;
 

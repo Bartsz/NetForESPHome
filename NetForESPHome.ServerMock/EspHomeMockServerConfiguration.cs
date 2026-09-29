@@ -1,4 +1,4 @@
-﻿using Google.Protobuf;
+﻿using NetForESPHome.DomainModel.Native;
 using System.Net;
 using System.Security.Cryptography;
 
@@ -65,10 +65,10 @@ public sealed class EspHomeMockServerConfiguration
     public Func<DeviceCapabilitiesResponse>? GenerateDeviceCapabilities { get; }
 
     /// <summary>Gets an optional callback invoked after every entity command is received and any built-in retained-state update is applied.</summary>
-    public Func<IMessage, CancellationToken, ValueTask>? CommandReceived { get; }
+    public Func<IESPHomeMessage, CancellationToken, ValueTask>? CommandReceived { get; }
 
     /// <summary>Creates a complete ESPHome mock configuration while keeping entity behavior in the supplied entity wrappers.</summary>
-    public EspHomeMockServerConfiguration(string name, EspHomeEntityConfiguration[] entities, int port = 6053, IPAddress? listenAddress = null, string? noisePsk = null, string? password = null, string? friendlyName = null, uint apiVersionMajor = 1, uint apiVersionMinor = 16, string espHomeVersion = "2026.8.0", string macAddress = "02:00:00:00:00:01", string board = "esp32dev", string network = "wifi", string configHash = "", bool advertiseMdns = true, TimeProvider? timeProvider = null, ListEntitiesServicesResponse[]? services = null, Func<DeviceInfoResponse>? generateDeviceInfo = null, Func<DeviceCapabilitiesResponse>? generateDeviceCapabilities = null, Func<IMessage, CancellationToken, ValueTask>? commandReceived = null)
+    public EspHomeMockServerConfiguration(string name, EspHomeEntityConfiguration[] entities, int port = 6053, IPAddress? listenAddress = null, string? noisePsk = null, string? password = null, string? friendlyName = null, uint apiVersionMajor = 1, uint apiVersionMinor = 16, string espHomeVersion = "2026.8.0", string macAddress = "02:00:00:00:00:01", string board = "esp32dev", string network = "wifi", string configHash = "", bool advertiseMdns = true, TimeProvider? timeProvider = null, ListEntitiesServicesResponse[]? services = null, Func<DeviceInfoResponse>? generateDeviceInfo = null, Func<DeviceCapabilitiesResponse>? generateDeviceCapabilities = null, Func<IESPHomeMessage, CancellationToken, ValueTask>? commandReceived = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(name);
         ArgumentNullException.ThrowIfNull(entities);

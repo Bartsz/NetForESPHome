@@ -5,6 +5,7 @@
     <Platform Name="x86" />
   </Configurations>
   <Folder Name="/config/">
+    <File Path=".editorconfig" />
     <File Path="Directory.Build.props" />
     <File Path="Directory.Packages.props" />
   </Folder>
@@ -13,6 +14,7 @@
   </Folder>
   <Project Path="NetForESPHome.Client.Example/NetForESPHome.Client.Example.csproj" />
   <Project Path="NetForESPHome.Client/NetForESPHome.Client.csproj" />
+  <Project Path="NetForESPHome.DomainModel.ProtocPlugin/NetForESPHome.DomainModel.ProtocPlugin.csproj" />
   <Project Path="NetForESPHome.DomainModel/NetForESPHome.DomainModel.csproj" />
   <Project Path="NetForESPHome.Server.Benchmarks/NetForESPHome.Server.Benchmarks.csproj" />
   <Project Path="NetForESPHome.ServerMock.Example/NetForESPHome.ServerMock.Example.csproj" />

@@ -1,4 +1,6 @@
 syntax = "proto2";
+
+option csharp_namespace = "NetForESPHome.DomainModel.Native";
 import "google/protobuf/descriptor.proto";
 
 

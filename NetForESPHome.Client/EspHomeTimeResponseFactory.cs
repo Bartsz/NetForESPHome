@@ -1,6 +1,8 @@
-﻿namespace NetForESPHome.Client;
+﻿using NetForESPHome.DomainModel.Native;
 
-using System.Globalization;
+#pragma warning disable CS0612 // Type or member is obsolete
+
+namespace NetForESPHome.Client;
 
 /// <summary>Creates ESPHome time responses from the system time provider.</summary>
 public static class EspHomeTimeResponseFactory
@@ -136,9 +138,9 @@ public static class EspHomeTimeResponseFactory
 
         return rule.Type switch
         {
-            DSTRuleType.MonthWeekDay => string.Create(CultureInfo.InvariantCulture, $"M{rule.Month}.{rule.Week}.{rule.DayOfWeek}/{transitionTime}"),
-            DSTRuleType.JulianNoLeap => string.Create(CultureInfo.InvariantCulture, $"J{rule.Day}/{transitionTime}"),
-            DSTRuleType.DayOfYear => string.Create(CultureInfo.InvariantCulture, $"{rule.Day}/{transitionTime}"),
+            DSTRuleType.MonthWeekDay => $"M{rule.Month}.{rule.Week}.{rule.DayOfWeek}/{transitionTime}",
+            DSTRuleType.JulianNoLeap => $"J{rule.Day}/{transitionTime}",
+            DSTRuleType.DayOfYear => $"{rule.Day}/{transitionTime}",
             _ => throw new ArgumentOutOfRangeException(nameof(rule), rule.Type, "Unsupported DST rule type.")
         };
     }

@@ -1,4 +1,4 @@
-﻿using Google.Protobuf;
+﻿using NetForESPHome.DomainModel.Native;
 
 namespace NetForESPHome.ServerMock;
 
@@ -6,7 +6,7 @@ namespace NetForESPHome.ServerMock;
 internal static class EspHomeEntityStateUpdater
 {
     /// <summary>Applies a supported command to the supplied cloned state and returns the resulting state message.</summary>
-    public static bool TryApply(IMessage currentState, IMessage command, out IMessage? updatedState)
+    public static bool TryApply(IESPHomeMessage currentState, IESPHomeMessage command, out IESPHomeMessage? updatedState)
     {
         ArgumentNullException.ThrowIfNull(currentState);
         ArgumentNullException.ThrowIfNull(command);

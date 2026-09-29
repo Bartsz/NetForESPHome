@@ -1,5 +1,5 @@
 ﻿using Google.Protobuf;
-using NetForESPHome.DomainModel;
+using NetForESPHome.DomainModel.Native;
 using System.Net.Sockets;
 
 namespace NetForESPHome.Transports;
@@ -29,7 +29,7 @@ public sealed class PlainTextMessageTransport : IMessageTransport
     }
 
     /// <summary>Reads and deserializes the next plaintext ESPHome message.</summary>
-    public async ValueTask<IMessage> ReadMessageAsync(CancellationToken ct)
+    public async ValueTask<IESPHomeMessage > ReadMessageAsync(CancellationToken ct)
     {
         ThrowIfDisposed();
 
@@ -51,20 +51,20 @@ public sealed class PlainTextMessageTransport : IMessageTransport
         if (length > 0)
             await _stream.ReadExactlyAsync(_readBuffer.AsMemory(0, length), ct).ConfigureAwait(false);
 
-        return EspHomeMessageMapper.ParseMessage(messageId, _readBuffer.AsSpan(0, length));
+        return IESPHomeMessage.Parse(messageId, _readBuffer.AsSpan(0, length));
     }
 
     /// <summary>Serializes and writes one plaintext ESPHome message.</summary>
-    public async ValueTask WriteMessageAsync(IMessage message, CancellationToken ct)
+    public async ValueTask WriteMessageAsync(IESPHomeMessage message, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(message);
         ThrowIfDisposed();
-
-        var messageSize = message.CalculateSize();
+        if (message is not IMessage protoMessage) return;
+        var messageSize = protoMessage.CalculateSize();
         if (messageSize > MaxMessageSize)
             throw new InvalidDataException($"ESPHome message length {messageSize} exceeds the {MaxMessageSize}-byte limit.");
 
-        var messageId = EspHomeMessageMapper.GetMessageId(message);
+        var messageId = message.MessageId;
         if (messageId < 0 || messageId > MaxVarUIntValue)
             throw new InvalidDataException($"ESPHome message ID {messageId} exceeds the supported range.");
 
@@ -75,7 +75,7 @@ public sealed class PlainTextMessageTransport : IMessageTransport
         position += WriteVarUInt(_writeBuffer.AsSpan(position), (uint)messageSize);
         position += WriteVarUInt(_writeBuffer.AsSpan(position), (uint)messageId);
 
-        message.WriteTo(_writeBuffer.AsSpan(position, messageSize));
+        protoMessage.WriteTo(_writeBuffer.AsSpan(position, messageSize));
         position += messageSize;
 
         await _stream.WriteAsync(_writeBuffer.AsMemory(0, position), ct).ConfigureAwait(false);

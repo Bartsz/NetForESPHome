@@ -1,4 +1,4 @@
-﻿using Google.Protobuf;
+﻿using NetForESPHome.DomainModel.Native;
 
 namespace NetForESPHome.Transports;
 
@@ -6,8 +6,8 @@ namespace NetForESPHome.Transports;
 /// multiple concurrent reads or writes are not supported.</summary>
 public interface IMessageTransport : IDisposable
 {
-    ValueTask<IMessage> ReadMessageAsync(CancellationToken ct);
-    ValueTask WriteMessageAsync(IMessage message, CancellationToken ct);
+    ValueTask<IESPHomeMessage> ReadMessageAsync(CancellationToken ct);
+    ValueTask WriteMessageAsync(IESPHomeMessage message, CancellationToken ct);
 }
  
 

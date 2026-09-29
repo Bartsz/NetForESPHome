@@ -1,0 +1,28 @@
+syntax = "proto2";
+
+package google.protobuf.compiler;
+
+option csharp_namespace = "ProtocGenEspHomeInterfaces.Protocol";
+
+import "google/protobuf/descriptor.proto";
+
+// Minimal wire-compatible subset of google/protobuf/compiler/plugin.proto.
+// protoc writes CodeGeneratorRequest to stdin and reads CodeGeneratorResponse
+// from stdout. Unknown fields added by newer protoc versions are safely ignored.
+
+message CodeGeneratorRequest {
+  repeated string file_to_generate = 1;
+  optional string parameter = 2;
+  repeated google.protobuf.FileDescriptorProto proto_file = 15;
+}
+
+message CodeGeneratorResponseFile {
+  optional string name = 1;
+  optional string content = 15;
+}
+
+message CodeGeneratorResponse {
+  optional string error = 1;
+  optional uint64 supported_features = 2;
+  repeated CodeGeneratorResponseFile file = 15;
+}
