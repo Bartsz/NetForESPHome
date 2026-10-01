@@ -1,4 +1,4 @@
-﻿using Google.Protobuf;
+using Google.Protobuf;
 using NetForESPHome.DomainModel.Native;
 
 namespace NetForESPHome.ServerMock;
@@ -29,37 +29,44 @@ public sealed class EspHomeBluetoothDeviceConfiguration : IMessageProducer
         Address = address;
         AddressType = addressType;
         _generateAdvertisementData = generateAdvertisementData;
-        _generateRssi = generateRssi ?? (() => -60);
-        _generateDelay = generateDelay ?? (() => TimeSpan.FromSeconds(1));
+        _generateRssi = generateRssi ?? (static () => -60);
+        _generateDelay = generateDelay ?? (static () => TimeSpan.FromSeconds(1));
     }
 
-    /// <summary>Waits until the next simulated Bluetooth advertisement should be observed.</summary>
+    /// <inheritdoc />
     public ValueTask WaitForDelayAsync(TimeProvider timeProvider, CancellationToken cancellationToken)
     {
-        var delay = _generateDelay();
-        if (delay < TimeSpan.Zero) throw new InvalidOperationException("Bluetooth advertisement delay cannot be negative.");
+        ArgumentNullException.ThrowIfNull(timeProvider);
 
-        var task = Task.Delay(delay, timeProvider, cancellationToken);
-        return new ValueTask(task);
+        var delay = _generateDelay();
+        if (delay < TimeSpan.Zero && delay != Timeout.InfiniteTimeSpan)
+        {
+            throw new InvalidOperationException($"Bluetooth advertisement delay is invalid: {delay}.");
+        }
+
+        return new ValueTask(Task.Delay(delay, timeProvider, cancellationToken));
     }
 
-    /// <summary>Creates one raw Bluetooth advertisement batch containing the configured simulated device.</summary>
+    /// <inheritdoc />
     public IESPHomeMessage GenerateMessage()
     {
-        var data = _generateAdvertisementData();
-        if (data.Length > MaximumAdvertisementDataLength)
-            throw new InvalidOperationException($"Bluetooth advertisement data cannot exceed {MaximumAdvertisementDataLength} bytes.");
+        var data = _generateAdvertisementData()
+            ?? throw new InvalidOperationException("Bluetooth advertisement generator returned null data.");
 
-        var advertisement = new BluetoothLERawAdvertisement
+        if (data.Length > MaximumAdvertisementDataLength)
+        {
+            throw new InvalidOperationException(
+                $"Bluetooth advertisement data cannot exceed {MaximumAdvertisementDataLength} bytes.");
+        }
+
+        var response = new BluetoothLERawAdvertisementsResponse();
+        response.Advertisements.Add(new BluetoothLERawAdvertisement
         {
             Address = Address,
             AddressType = AddressType,
             Rssi = _generateRssi(),
             Data = ByteString.CopyFrom(data)
-        };
-
-        var response = new BluetoothLERawAdvertisementsResponse();
-        response.Advertisements.Add(advertisement);
+        });
 
         return response;
     }

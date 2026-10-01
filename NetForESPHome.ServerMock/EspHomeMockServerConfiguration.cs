@@ -1,4 +1,4 @@
-﻿using NetForESPHome.DomainModel.Native;
+using NetForESPHome.DomainModel.Native;
 using System.Net;
 using System.Security.Cryptography;
 
@@ -68,7 +68,27 @@ public sealed class EspHomeMockServerConfiguration
     public Func<IESPHomeMessage, CancellationToken, ValueTask>? CommandReceived { get; }
 
     /// <summary>Creates a complete ESPHome mock configuration while keeping entity behavior in the supplied entity wrappers.</summary>
-    public EspHomeMockServerConfiguration(string name, EspHomeEntityConfiguration[] entities, int port = 6053, IPAddress? listenAddress = null, string? noisePsk = null, string? password = null, string? friendlyName = null, uint apiVersionMajor = 1, uint apiVersionMinor = 16, string espHomeVersion = "2026.8.0", string macAddress = "02:00:00:00:00:01", string board = "esp32dev", string network = "wifi", string configHash = "", bool advertiseMdns = true, TimeProvider? timeProvider = null, ListEntitiesServicesResponse[]? services = null, Func<DeviceInfoResponse>? generateDeviceInfo = null, Func<DeviceCapabilitiesResponse>? generateDeviceCapabilities = null, Func<IESPHomeMessage, CancellationToken, ValueTask>? commandReceived = null)
+    public EspHomeMockServerConfiguration(
+        string name,
+        EspHomeEntityConfiguration[] entities,
+        int port = 6053,
+        IPAddress? listenAddress = null,
+        string? noisePsk = null,
+        string? password = null,
+        string? friendlyName = null,
+        uint apiVersionMajor = 1,
+        uint apiVersionMinor = 16,
+        string espHomeVersion = "2026.8.0",
+        string macAddress = "02:00:00:00:00:01",
+        string board = "esp32dev",
+        string network = "wifi",
+        string configHash = "",
+        bool advertiseMdns = true,
+        TimeProvider? timeProvider = null,
+        ListEntitiesServicesResponse[]? services = null,
+        Func<DeviceInfoResponse>? generateDeviceInfo = null,
+        Func<DeviceCapabilitiesResponse>? generateDeviceCapabilities = null,
+        Func<IESPHomeMessage, CancellationToken, ValueTask>? commandReceived = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(name);
         ArgumentNullException.ThrowIfNull(entities);
@@ -77,8 +97,11 @@ public sealed class EspHomeMockServerConfiguration
         ArgumentException.ThrowIfNullOrEmpty(board);
         ArgumentException.ThrowIfNullOrEmpty(network);
 
-        if (name.Length > 31) throw new ArgumentOutOfRangeException(nameof(name), name, "ESPHome node name must not exceed 31 characters.");
-        if (port is < 0 or > ushort.MaxValue) throw new ArgumentOutOfRangeException(nameof(port), port, "Port must be between 0 and 65535.");
+        if (name.Length > 31)
+            throw new ArgumentOutOfRangeException(nameof(name), name, "ESPHome node name must not exceed 31 characters.");
+
+        if (port is < 0 or > ushort.MaxValue)
+            throw new ArgumentOutOfRangeException(nameof(port), port, "Port must be between 0 and 65535.");
 
         ValidateNoisePsk(noisePsk);
         ValidateEntities(entities);
@@ -109,7 +132,10 @@ public sealed class EspHomeMockServerConfiguration
     internal DeviceInfoResponse CreateDeviceInfoResponse()
     {
         var customResponse = GenerateDeviceInfo?.Invoke();
-        if (customResponse is not null) return customResponse;
+        if (customResponse is not null)
+        {
+            return customResponse;
+        }
 
         var response = new DeviceInfoResponse
         {
@@ -130,22 +156,17 @@ public sealed class EspHomeMockServerConfiguration
     }
 
     /// <summary>Creates the capabilities response returned by the server when no custom response factory is configured.</summary>
-    internal DeviceCapabilitiesResponse CreateDeviceCapabilitiesResponse()
-    {
-        var customResponse = GenerateDeviceCapabilities?.Invoke();
-        if (customResponse is not null) return customResponse;
+    internal DeviceCapabilitiesResponse CreateDeviceCapabilitiesResponse() =>
+        GenerateDeviceCapabilities?.Invoke() ?? new DeviceCapabilitiesResponse();
 
-        return new DeviceCapabilitiesResponse();
-    }
-
-    /// <summary>Validates a configured Noise PSK before the server starts accepting connections.</summary>
     private static void ValidateNoisePsk(string? noisePsk)
     {
         if (noisePsk is null) return;
-        if (noisePsk.Length == 0) throw new ArgumentException("Noise PSK cannot be empty.", nameof(noisePsk));
+
+        if (noisePsk.Length == 0)
+            throw new ArgumentException("Noise PSK cannot be empty.", nameof(noisePsk));
 
         byte[] psk;
-
         try
         {
             psk = Convert.FromBase64String(noisePsk);
@@ -157,7 +178,10 @@ public sealed class EspHomeMockServerConfiguration
 
         try
         {
-            if (psk.Length != 32) throw new ArgumentException("ESPHome Noise PSK must decode to exactly 32 bytes.", nameof(noisePsk));
+            if (psk.Length != 32)
+            {
+                throw new ArgumentException("ESPHome Noise PSK must decode to exactly 32 bytes.", nameof(noisePsk));
+            }
         }
         finally
         {
@@ -165,8 +189,7 @@ public sealed class EspHomeMockServerConfiguration
         }
     }
 
-    /// <summary>Rejects duplicate entity addresses before they can make command and state routing ambiguous.</summary>
-    private static void ValidateEntities(EspHomeEntityConfiguration[] entities)
+    private static void ValidateEntities(IEnumerable<EspHomeEntityConfiguration> entities)
     {
         var addresses = new HashSet<EntityAddress>();
 
@@ -174,8 +197,10 @@ public sealed class EspHomeMockServerConfiguration
         {
             ArgumentNullException.ThrowIfNull(entity);
 
-            var address = new EntityAddress(entity.DeviceId, entity.Key);
-            if (!addresses.Add(address)) throw new ArgumentException($"ESPHome entity address {address} is configured more than once.", nameof(entities));
+            if (!addresses.Add(entity.Address))
+            {
+                throw new ArgumentException($"ESPHome entity address {entity.Address} is configured more than once.", nameof(entities));
+            }
         }
     }
 }

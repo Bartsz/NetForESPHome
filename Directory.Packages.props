@@ -6,17 +6,16 @@
     <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.11" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.11" />
     <PackageVersion Include="NetForESPHome.DomainModel" Version="1.0.6" />
-    <PackageVersion Include="Meziantou.Analyzer" Version="3.0.203" />
+    <PackageVersion Include="Meziantou.Analyzer" Version="3.0.290" />
     <PackageVersion Include="Zeroconf" Version="3.7.16" />
     <PackageVersion Include="Makaretu.Dns.Multicast.New" Version="0.38.0" />
-    <PackageVersion Include="Grpc.Tools" Version="2.83.0" />
-    <PackageVersion Include="Google.Protobuf" Version="3.36.1" />
-    <PackageVersion Include="Grpc.Net.Client" Version="2.83.0" />
+    <PackageVersion Include="Grpc.Tools" Version="2.84.0" />
+    <PackageVersion Include="Google.Protobuf" Version="3.36.2" />
+    <PackageVersion Include="Grpc.Net.Client" Version="2.84.0" />
     <PackageVersion Include="Grpc.AspNetCore" Version="2.83.0" />
     <PackageVersion Include="Noise.NET" Version="1.0.0" />
     <PackageVersion Include="System.IO.Hashing" Version="10.0.11" />
-    <PackageVersion Include="BenchmarkDotNet" Version="0.15.8" />
-    <PackageVersion Include="Noise.NET" Version="1.0.0" />
+    <PackageVersion Include="BenchmarkDotNet" Version="0.15.8" /> 
   </ItemGroup>
   <!-- For test projects -->
   <ItemGroup>
