@@ -1,5 +1,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
+## Tested with real devices, but client API is still under development - consider this alpha version
+
 # NetForESPHome
 
 `NetForESPHome` is an independent .NET implementation of selected parts of the **ESPHome Native API** ecosystem.

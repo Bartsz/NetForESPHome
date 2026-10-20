@@ -3,7 +3,6 @@ using NetForESPHome.DomainModel.Native;
 using Noise;
 using System.Buffers.Binary;
 using System.Net.Sockets;
-using System.Text.RegularExpressions;
 
 namespace NetForESPHome.Transports;
 
